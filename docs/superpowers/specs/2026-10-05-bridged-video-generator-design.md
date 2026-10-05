@@ -17,6 +17,7 @@ Success: given a Bridged script (marked up the same way as Versed scripts) and i
 - **Fresh git history:** the copy starts as a clean repo, not carrying Versed's commit history.
 - **Script markup unchanged:** italic = motion graphic, bold = talking-head placeholder, italic+image link = linked graph, italic+`#:~:text=` page link = page highlight, non-italic image link = show-as-is image. `.txt`/`.md` scripts use `*graphic*` and `**talking head**`.
 - **Envato login profile is copied** (`.envato_automation_profile/`, about 1 GB, gitignored), so no fresh login is needed. API keys `PEXELS_API_KEY` and `YOUTUBE_API_KEY` are reused in the new `.env`.
+- **YouTube channel blacklist:** Bridged starts with the same 10 excluded channels as Versed (WSJ, CNN, BBC News, BBC Earth Science, BBC, Fox News, Survive the Jive, Bloomberg, NY Times, BBC Earth). The NY Times and BBC Earth were added to Versed's list on 2026-10-05 and apply to both generators. The lists live in separate copies of `footage/youtube_channels.py`, so later additions must be made in each.
 - **Footage query tuning for logistics** (ships, ports, trains, warehouses) is out of scope for the first build. It happens after a first real test.
 
 ## What is copied unchanged

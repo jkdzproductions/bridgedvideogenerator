@@ -9,12 +9,20 @@ PACKAGES = [
 ]
 
 
-def _tracked_or_untracked_files():
+def _tracked_or_untracked_files(cwd=ROOT):
+    # -z gives raw, unquoted paths (plain `git ls-files` quotes non-ASCII names).
     out = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
-        cwd=ROOT, capture_output=True, text=True, check=True,
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        cwd=cwd, capture_output=True, text=True, check=True,
     ).stdout
-    return [line for line in out.splitlines() if line]
+    return [name for name in out.split("\0") if name]
+
+
+def test_file_listing_returns_non_ascii_paths_unquoted(tmp_path):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    name = "candidates_\u00e9 \u202f.json"
+    (tmp_path / name).write_text("{}")
+    assert _tracked_or_untracked_files(cwd=tmp_path) == [name]
 
 
 def test_no_font_files_or_versed_assets_in_the_repo():

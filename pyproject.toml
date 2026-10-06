@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bridged-video-generator"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "requests",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+align = ["openai-whisper"]
+youtube = ["yt-dlp"]
+dev = ["pytest"]
+envato = ["playwright"]
+docx = ["python-docx>=1.1"]
+page = ["playwright", "Pillow"]
+
+[tool.setuptools.packages.find]
+include = ["shot_list*", "footage*", "assembly*", "motion_graphics*", "script_input*", "graph_intake*", "page_intake*", "image_intake*"]

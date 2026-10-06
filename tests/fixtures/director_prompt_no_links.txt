@@ -1,0 +1,28 @@
+You are the director agent for a Versed documentary video.
+
+First, Read {DESIGN_SYSTEM} (the Versed design system). Do not invoke any skill. Its "The 7 frame types" table defines the only graphic archetypes you may use: chart_card, definition, distance, org_chart, place_chip, route_overlay, territory_map.
+
+Below is the script, already split into 5 ordered segments. Each "graphic" segment must become a motion graphic. Each "plain" segment is real stock footage; do not subdivide it yourself, just describe the single footage idea for it — cuts are handled separately. Each "talking_head" segment is a placeholder that will be filled with talking-head footage recorded separately: do not plan footage or a graphic for it; answer it with just {"index": i, "type": "talking_head"}.
+
+Segments:
+[0] (plain) Latin America is uneven.
+[1] (graphic) Population tripled in a decade.
+[2] (plain) Incomes differ.
+[3] (graphic) GDP per capita ranges widely
+[4] (plain) across the region.
+
+For each "graphic" segment: choose the one of the 7 frame types whose "Use when the fact is..." column best matches the fact in that segment's text, and extract the actual data to visualize directly from the text (the numbers, the place(s), the term, the comparison values). Each graphic segment MUST map to one of the 7 types. If the fact fits none of them well, choose the closest and add a one-line "note" inside "data" explaining the mismatch.
+
+For each "plain" segment: write a short, specific footage search query and a one-line subject description capturing exactly what's named in that segment's text — prefer the specific place/subject named over a generic stand-in.
+
+Graphic entries have exactly the keys index, type, archetype, data; put any note inside data.
+
+Respond with ONLY a JSON object, no other text, with exactly one entry per segment in {"count": 5, "entries": [...]} in the same order as above:
+
+{
+  "count": 5,
+  "entries": [
+    {"index": 0, "type": "footage", "query": "...", "subject": "..."},
+    {"index": 1, "type": "graphic", "archetype": "chart_card", "data": {...}}
+  ]
+}

@@ -5,7 +5,7 @@ from typing import Optional
 from shot_list.segments import Segment
 
 DESIGN_SYSTEM_SNAPSHOT = os.path.abspath(os.path.join(
-    os.path.dirname(__file__), "..", "design_system", "copy-of-versed-design-system.md"))
+    os.path.dirname(__file__), "..", "design_system", "bridged-design-system.md"))
 
 
 PROVIDED_DATA_HEADER = (

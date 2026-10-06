@@ -4,7 +4,7 @@ from shot_list.director_prompt import build_director_prompt
 from shot_list.segments import Segment
 
 SNAPSHOT = os.path.abspath(os.path.join(
-    os.path.dirname(__file__), "..", "design_system", "copy-of-versed-design-system.md"))
+    os.path.dirname(__file__), "..", "design_system", "bridged-design-system.md"))
 
 
 def test_prompt_includes_every_segment_indexed_in_order():

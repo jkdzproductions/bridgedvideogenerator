@@ -65,3 +65,12 @@ def test_snapshot_carries_no_versed_content():
 def test_snapshot_states_the_multi_country_colour_rule():
     text = _text().lower()
     assert "distinct" in text and "never blue" in text and "border" in text
+
+
+def test_chart_card_text_is_plain_ink_not_black_chips():
+    table = _types_table()
+    row = next(line for line in table.splitlines() if line.startswith("| `chart_card` |"))
+    assert "NO black chips" in row
+    text = _text()
+    assert "never inside a black chip" in text
+    assert "On a chart_card, is every piece of text plain ink text" in text

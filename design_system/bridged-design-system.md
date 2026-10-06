@@ -38,7 +38,7 @@ diamonds, connectors) is black ink.
 | `fan_out` | what one thing depends on | `subject` (name, glyph), `inputs` (name and glyph or photo each), `heavy` (true if one source dominates: double trunk) | Peach paper. Title chip, big filled glyph of the subject, rounded bracket tree to the inputs. |
 | `year_range` | a period and a rate | `start`, `end`, `rate` (value and unit, e.g. "20 / Per year"), optional `flag` (country code) | Peach paper. Two big year chips joined by an ink dash, stepped connector to a diamond with a flag, rate chip beneath. |
 | `then_vs_now` | how much something shrank or grew | `then` (count, label), `now` (count, label), `unit_glyph`, `title` | Peach paper. Two isotype counts (navy then, maroon now) with stacked chips and an ink bar between; title chip on top. |
-| `chart_card` | a quantity over time or a comparison of series | `title`, `subtitle` (range or unit), `series` (label, points), `highlight_period`, `source` | Peach paper. Ink title chip over an area chart (highlighted period) or a red and blue line chart. |
+| `chart_card` | a quantity over time or a comparison of series | `title`, `subtitle` (range or unit), `series` (label, points), `highlight_period`, `source` | Peach paper. All text (title, subtitle, band label, series labels, axis labels, source) is plain ink text on the paper, NO black chips. An area chart (highlighted period) or a red and blue line chart. |
 | `territory_map` | where something is; the extent or control of land | `territories` (names), `style` (`fill`, `tint` or `outline`), `pins` (specific sites), optional `date` | Dark satellite. Country in solid cyan, translucent teal tint or glowing outline, with a white edge, white chips and a pink pin. |
 | `network_map` | routes or a network between places | `cities` (names), `route` (order), `vehicle` (ship, plane, train or truck glyph) | Dark satellite. Glowing blue city dots with glowing white names, dashed glowing route, vehicle glyph at the head. |
 
@@ -49,6 +49,7 @@ Frames carry almost no text. A chip, a figure, a place. The narration leads.
 - Tone: factual, sober. No exclamation, no hype.
 - Chips: sentence or title case, Nagel Regular, square corners ("Naval Shipbuilding", "Jones Act
   Fleet Collapse", "Bank").
+- Charts (chart_card): every piece of text on a chart (title, subtitle, band label, series labels, axis labels, source) is plain ink text on the paper, never inside a black chip. Black chips are for diagrams and for labels on footage and maps.
 - Value and qualifier stack as two chips ("400 Ships" / "1950", "20/Per year").
 - Year ranges: two large chips joined by an ink dash ("1955 — 1985"). Decades: "1970s-1980s".
 - Dates on footage: spelled out in a white chip with a pink pin ("April 30th, 2025").
@@ -90,6 +91,7 @@ Frames carry almost no text. A chip, a figure, a place. The narration leads.
 
 - Is it exactly one of the 7 frame types, matching the target archetype and data (no wrong,
   missing or fabricated values)?
+- On a chart_card, is every piece of text plain ink text with no black chip behind it?
 - Is structure ink (black chips, diamonds, connectors), with colour only where it has a nameable
   role (red industry, blue labour, cyan institutions/territory, green money, pink key term or
   pin, yellow figure over footage)?

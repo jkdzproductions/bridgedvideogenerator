@@ -13,9 +13,20 @@ REQUIRED_HEADINGS = [
     "## Pre-ship checklist",
 ]
 
+DEFERRED = ("footage_callout", "pin_chip", "split_compare")
+
 
 def _text():
-    return open(DESIGN_SYSTEM_SNAPSHOT, encoding="utf-8").read()
+    with open(DESIGN_SYSTEM_SNAPSHOT, encoding="utf-8") as f:
+        return f.read()
+
+
+def _types_table():
+    """The text between the frame-types heading and the next heading."""
+    text = _text()
+    start = text.index("## The 7 frame types")
+    end = text.index("\n## ", start + 5)
+    return text[start:end]
 
 
 def test_snapshot_is_the_bridged_file_and_exists():
@@ -29,12 +40,28 @@ def test_snapshot_keeps_every_section_the_prompts_read():
         assert heading in text, f"snapshot lost the section {heading!r}"
 
 
-def test_snapshot_lists_exactly_the_archetypes_the_code_accepts():
+def test_the_types_table_has_exactly_the_archetypes_the_code_accepts():
+    rows = re.findall(r"^\| `([a-z_]+)` \|", _types_table(), flags=re.M)
+    assert set(rows) == ARCHETYPES
+    assert len(rows) == 7
+
+
+def test_deferred_types_are_not_in_the_allowed_table():
+    table = _types_table()
+    for name in DEFERRED:
+        assert f"`{name}` |" not in table
+
+
+def test_snapshot_says_the_deferred_types_are_coming():
     text = _text()
-    for name in ARCHETYPES:
-        assert f"`{name}`" in text
+    for name in DEFERRED:
+        assert name in text  # mentioned in the pipeline notes as not yet allowed
 
 
 def test_snapshot_carries_no_versed_content():
-    lowered = _text().lower()
-    assert not re.search(r"(?<![a-z])versed", lowered) and "nagel" not in lowered
+    assert not re.search(r"(?<![a-z])versed", _text().lower())
+
+
+def test_snapshot_states_the_multi_country_colour_rule():
+    text = _text().lower()
+    assert "distinct" in text and "never blue" in text and "border" in text

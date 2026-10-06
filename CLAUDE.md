@@ -1,4 +1,4 @@
-# Versed Video Generator — Shot List Generation Workflow
+# Bridged Video Generator — Shot List Generation Workflow
 
 Run this from a Claude Code session in this project directory. Inputs: a script file and its
 voiceover audio file. The script is either a Word `.docx` — graphic moments in *italic*; an
@@ -266,7 +266,7 @@ Python inside the quotes. From Step 1a on, every Stage 1 command reads `script_m
 
 4. Read `director_input.json`. Spawn ONE subagent (Agent tool, `model: "opus"`) with the
    `prompt` field as its full instructions. The subagent will Read the design-system rules
-   snapshot (`design_system/copy-of-versed-design-system.md`, by absolute path) itself as its
+   snapshot (`design_system/bridged-design-system.md`, by absolute path) itself as its
    first step (the prompt tells it to) — it invokes no skill, and you do not pre-load anything
    for it. Talking-head segments (`**...**`) are listed for context only; the director gives them
    a marker-only entry (`{"index": i, "type": "talking_head"}`) with no footage or graphic.
@@ -898,13 +898,14 @@ beat, one to three `["archive", ...]` entries per mixed beat won by stills (artw
 
 Run this after Stage 1 has produced `shot_list.json`. Requires `GRAPHICS_DESIGN_SYSTEM_NAME` in
 `.env`: the **exact display name** of the Claude Design design system to attach to every canvas,
-as it appears in claude.ai/design's "Design system" picker (currently
-`GRAPHICS_DESIGN_SYSTEM_NAME="Copy of Versed Design System"`). It is a name, not an id: the
-picker only selects by visible name. This is the Design System project built via `/design-sync`
-from Josh's 8 published Versed frames plus the Nagel VF font. It defines exactly 7 graphic archetypes (`chart_card`, `definition`,
+as it appears in claude.ai/design's "Design system" picker (not set yet: the Bridged
+design system has to be created first). It is a name, not an id: the
+picker only selects by visible name. This is the Bridged design system project in
+Claude Design, which Josh builds from his own Bridged frames and font. Until it exists the local
+snapshot is a placeholder and Stage 3 must NOT be run. The placeholder lists 7 archetypes (`chart_card`, `definition`,
 `distance`, `org_chart`, `place_chip`, `route_overlay`, `territory_map`). The
 prompt-writer and reviewer subagents (and the Stage 1 director) read the local rules snapshot
-`design_system/copy-of-versed-design-system.md` by absolute path rather than the design system
+`design_system/bridged-design-system.md` by absolute path rather than the design system
 itself, since unattended subagents cannot read claude.ai. **Refresh that snapshot whenever the design
 system changes: re-copy the readme content from claude.ai/design, but PRESERVE the snapshot's
 header pipeline notes (the 7 archetypes) and its "Pre-ship checklist"

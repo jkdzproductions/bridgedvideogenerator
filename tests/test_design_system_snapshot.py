@@ -74,3 +74,22 @@ def test_chart_card_text_is_plain_ink_not_black_chips():
     text = _text()
     assert "never inside a black chip" in text
     assert "On a chart_card, is every piece of text plain ink text" in text
+
+
+def test_maps_use_nasa_blue_marble_with_detailed_coastline():
+    text = _text()
+    flat = " ".join(text.split())
+    maps_bullet = flat[flat.index("- **Maps.**"):flat.index("- **Texture.**")]
+    assert "NASA Blue Marble" in maps_bullet
+    assert "detailed coastline" in maps_bullet
+    assert "crisp thin white edge" in maps_bullet
+    assert "no credit line goes on screen" in maps_bullet
+    assert (
+        "Is a map's ground smooth NASA Blue Marble with no visible seams or bands, and is any "
+        "highlighted territory drawn with the detailed coastline and a crisp white edge "
+        "(no blocky outline, no credit line on screen)?"
+    ) in flat
+    # Sentinel may appear only as the mosaic NOT to use; the old CC BY credit is gone.
+    for match in re.finditer("Sentinel", flat):
+        assert "never the EOX Sentinel-2 mosaic" in flat[max(0, match.start() - 20):match.end() + 10]
+    assert "CC BY" not in text

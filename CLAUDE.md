@@ -968,9 +968,9 @@ with no black chips: the snapshot now says so and a chat correction re-rendered 
 individually approved only `diamond_flow` and `chart_card`; the other five are reviewer-approved
 and exported but not yet signed off by him. Open items for Josh: (a) the fan-out warship is
 hand-drawn, not from the design system; (b) glyph icons are Font Awesome Free stand-ins and flags
-load from flagcdn.com (internet needed); (c) satellite imagery needs a CC BY 4.0 credit (on screen
-in the territory map clip, hidden in the network map clip; belongs in the video description
-either way); (d) fan-out lays out ship-on-top with the tree below, and year_range sits slightly
+load from flagcdn.com (internet needed); (c) satellite imagery is now NASA Blue Marble (public domain, no
+credit needed, on screen or in the video description; the earlier CC BY 4.0 Sentinel-2 credit no
+longer applies); (d) fan-out lays out ship-on-top with the tree below, and year_range sits slightly
 left of centre; (e) the design system's own Chart card template still draws a black chip around
 the title, which only Josh can change in Claude Design. The passes described below were run on
 the earlier generator's design system, before the Bridged one existed.
@@ -1075,6 +1075,8 @@ certainly hit every later beat the same way. See the catch-all at the end of Ste
   clicking Export (once it silently stayed on 1280x720).
 - A Commons photo used in a clip needs a credit in the video description (for example the
   Onassis photo: Pieter Jongerhuis for Anefo, Dutch National Archives, via Wikimedia Commons).
+- Maps use the NASA Blue Marble basemap, not EOX Sentinel-2 (its seams show). The Japan map fix
+  was a chat correction on the existing canvas asking for the Natural Earth 10m coastline.
 
 ### Procedure W: wait for a generation or correction to finish
 

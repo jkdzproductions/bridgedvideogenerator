@@ -39,8 +39,8 @@ diamonds, connectors) is black ink.
 | `year_range` | a period and a rate | `start`, `end`, `rate` (value and unit, e.g. "20 / Per year"), optional `flag` (country code) | Peach paper. Two big year chips joined by an ink dash, stepped connector to a diamond with a flag, rate chip beneath. |
 | `then_vs_now` | how much something shrank or grew | `then` (count, label), `now` (count, label), `unit_glyph`, `title` | Peach paper. Two isotype counts (navy then, maroon now) with stacked chips and an ink bar between; title chip on top. |
 | `chart_card` | a quantity over time or a comparison of series | `title`, `subtitle` (range or unit), `series` (label, points), `highlight_period`, `source` | Peach paper. All text (title, subtitle, band label, series labels, axis labels, source) is plain ink text on the paper, NO black chips. An area chart (highlighted period) or a red and blue line chart. |
-| `territory_map` | where something is; the extent or control of land | `territories` (names), `style` (`fill`, `tint` or `outline`), `pins` (specific sites), optional `date` | Dark satellite. Country in solid cyan, translucent teal tint or glowing outline, with a white edge, white chips and a pink pin. |
-| `network_map` | routes or a network between places | `cities` (names), `route` (order), `vehicle` (ship, plane, train or truck glyph) | Dark satellite. Glowing blue city dots with glowing white names, dashed glowing route, vehicle glyph at the head. |
+| `territory_map` | where something is; the extent or control of land | `territories` (names), `style` (`fill`, `tint` or `outline`), `pins` (specific sites), optional `date` | Dark NASA Blue Marble satellite. Country in solid cyan, translucent teal tint or glowing outline, with a white edge, white chips and a pink pin. |
+| `network_map` | routes or a network between places | `cities` (names), `route` (order), `vehicle` (ship, plane, train or truck glyph) | Dark NASA Blue Marble satellite. Glowing blue city dots with glowing white names, dashed glowing route, vehicle glyph at the head. |
 
 ## Content fundamentals
 
@@ -77,6 +77,11 @@ Frames carry almost no text. A chip, a figure, a place. The narration leads.
   teal with thin white internal borders (a large country with states), or a glowing white outline
   with faint cyan inside (a city footprint). White place dots and labels, or glowing blue city
   dots for networks. The pink pentagon pin marks the specific site. No graticule, no legend.
+  The satellite ground is NASA Blue Marble, never the EOX Sentinel-2 mosaic (its stitched
+  satellite passes leave visible diagonal or vertical seams). A highlighted territory is drawn
+  with the detailed coastline (for example Natural Earth 1:10m) and a crisp thin white edge,
+  never the coarse blocky template outline. NASA imagery is public domain, so no credit line goes
+  on screen.
 - **Texture.** Fine diagonal crosshatch and light grain on paper. No vignette on diagrams.
 - **Shadows.** None on shapes. Glow only: yellow on figures, white on map labels and routes.
 - **Layout.** 1920x1080. Title chip centred at the top; diagrams read left to right along
@@ -103,3 +108,6 @@ Frames carry almost no text. A chip, a figure, a place. The narration leads.
 - Is there one clear subject and one clear focal point, with generous empty space?
 - Is the ground right for the type (peach paper for diagrams, darkened satellite for maps)?
 - Does it read at phone size (480p)?
+- Is a map's ground smooth NASA Blue Marble with no visible seams or bands, and is any highlighted
+  territory drawn with the detailed coastline and a crisp white edge (no blocky outline, no credit
+  line on screen)?

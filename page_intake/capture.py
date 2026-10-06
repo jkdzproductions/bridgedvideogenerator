@@ -25,7 +25,7 @@ class PageCaptureError(Exception):
     """The page could not be turned into a still; the message says why (callers add phrase + URL)."""
 
 
-# Finds the highlighted words in the page's visible text and keeps them as window.__versedRange.
+# Finds the highlighted words in the page's visible text and keeps them as window.__bridgedRange.
 # Text is lower-cased and whitespace-collapsed for matching; text nodes in different blocks are
 # separated by one space so "<h1>A</h1><p>B</p>" reads "a b". Returns null when not found.
 FIND_JS = r"""
@@ -100,7 +100,7 @@ FIND_JS = r"""
   const range = document.createRange();
   range.setStart(a[0], a[1]);
   range.setEnd(b[0], b[1] + 1);
-  window.__versedRange = range;
+  window.__bridgedRange = range;
   return { passage: orig.slice(found[0], found[1]) };
 }
 """
@@ -130,7 +130,7 @@ def find_passage(page, fragment: TextFragment) -> str:
     return result["passage"]
 
 
-HIGHLIGHT_GREEN = "#30fe3e"  # sampled from Josh's frame design-assets/frames/Screenshot 2026-10-03 at 1.07.30 PM.png
+HIGHLIGHT_GREEN = "#30fe3e"  # the highlight green Josh chose
 TEXT_BLUR_RADIUS = 2  # Pillow GaussianBlur radius for everything outside the passage
 IMAGE_BLUR_PX = 28  # CSS blur on every image/video/background so nothing graphic is recognizable
 MASK_PADDING_PX = 2  # the sharp patch around each passage rectangle is this much bigger
@@ -139,7 +139,7 @@ MASK_PADDING_PX = 2  # the sharp patch around each passage rectangle is this muc
 # passage. Runs after find_passage, because the passage's own ancestors must never be hidden.
 POPUPS_JS = r"""
 () => {
-  const range = window.__versedRange;
+  const range = window.__bridgedRange;
   const holdsPassage = (el) => el.contains(range.commonAncestorContainer);
   let hidden = 0;
   const hide = (el) => { el.style.setProperty('display', 'none', 'important'); hidden++; };
@@ -165,7 +165,7 @@ POPUPS_JS = r"""
 # a whole. (The first scrollIntoView only reaches nested scroll containers.)
 RECTS_JS = r"""
 () => {
-  const range = window.__versedRange;
+  const range = window.__bridgedRange;
   range.startContainer.parentElement.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
   const box = range.getBoundingClientRect();
   const wanted = box.height <= innerHeight ? (innerHeight - box.height) / 2 : innerHeight / 4;
@@ -180,7 +180,7 @@ RECTS_JS = r"""
 ANCESTOR_BG_JS = r"""
 () => {
   const bad = [];
-  let el = window.__versedRange.commonAncestorContainer;
+  let el = window.__bridgedRange.commonAncestorContainer;
   if (el.nodeType !== 1) el = el.parentElement;
   for (; el; el = el.parentElement) {
     if (/url\(/.test(getComputedStyle(el).backgroundImage)) {
@@ -195,7 +195,7 @@ ANCESTOR_BG_JS = r"""
 
 BLUR_IMAGES_JS = r"""
 (px) => {
-  const range = window.__versedRange;
+  const range = window.__bridgedRange;
   let blurred = 0;
   const blur = (el) => { el.style.setProperty('filter', `blur(${px}px)`, 'important'); blurred++; };
   for (const el of document.querySelectorAll('img, picture, video, canvas, svg, iframe, embed, object')) {
@@ -212,7 +212,7 @@ BLUR_IMAGES_JS = r"""
 
 COVER_JS = r"""
 (rects) => {
-  const common = window.__versedRange.commonAncestorContainer;
+  const common = window.__bridgedRange.commonAncestorContainer;
   const bad = [];
   for (const [x, y, w, h] of rects) {
     const cx = x + w / 2, cy = y + h / 2;
@@ -230,14 +230,14 @@ COVER_JS = r"""
 HIGHLIGHT_JS = r"""
 (color) => {
   const style = document.createElement('style');
-  style.textContent = `::highlight(versed) { background-color: ${color}; color: inherit; }`;
+  style.textContent = `::highlight(bridged) { background-color: ${color}; color: inherit; }`;
   document.head.appendChild(style);
-  CSS.highlights.set('versed', new Highlight(window.__versedRange));
+  CSS.highlights.set('bridged', new Highlight(window.__bridgedRange));
 }
 """
 
 
-CLEAR_HIGHLIGHT_JS = "() => { CSS.highlights.delete('versed'); }"
+CLEAR_HIGHLIGHT_JS = "() => { CSS.highlights.delete('bridged'); }"
 
 
 def hide_popups(page) -> int:

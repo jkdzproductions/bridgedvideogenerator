@@ -67,7 +67,7 @@ def test_prefix_and_suffix_pick_the_right_repeat(page, tmp_path):
     passage = find_passage(page, TextFragment(start="island", prefix="an", suffix="nation"))
 
     assert passage == "island"
-    rect = page.evaluate("() => { const r = window.__versedRange.getBoundingClientRect(); return r.top; }")
+    rect = page.evaluate("() => { const r = window.__bridgedRange.getBoundingClientRect(); return r.top; }")
     first_paragraph_top = page.evaluate("() => document.querySelector('p').getBoundingClientRect().top")
     assert rect > first_paragraph_top + 20  # the highlight is in the second paragraph, not the first
 
@@ -140,11 +140,11 @@ def test_a_hidden_duplicate_does_not_beat_the_visible_occurrence(page, tmp_path)
     load_page(page, url)
 
     assert find_passage(page, TextFragment(start="the quick fox")) == "the quick fox"
-    rect = page.evaluate("() => { const r = window.__versedRange.getBoundingClientRect(); "
+    rect = page.evaluate("() => { const r = window.__bridgedRange.getBoundingClientRect(); "
                          "return [r.width, r.height]; }")
     assert rect[0] > 0 and rect[1] > 0
     in_last_p = page.evaluate("() => { const ps = document.querySelectorAll('p'); "
-                              "return ps[ps.length - 1].contains(window.__versedRange.startContainer); }")
+                              "return ps[ps.length - 1].contains(window.__bridgedRange.startContainer); }")
     assert in_last_p
 
 

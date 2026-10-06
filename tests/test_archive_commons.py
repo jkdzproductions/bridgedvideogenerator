@@ -221,7 +221,7 @@ def test_search_sends_a_bitmap_search_with_the_project_user_agent(monkeypatch):
     assert seen["url"] == "https://commons.wikimedia.org/w/api.php"
     assert seen["params"]["gsrsearch"] == "atlanta railroad 1860s filetype:bitmap"
     assert seen["params"]["gsrlimit"] == 7 and seen["params"]["gsrnamespace"] == 6
-    assert seen["headers"]["User-Agent"] == USER_AGENT == "VersedVideoGenerator/0.1"
+    assert seen["headers"]["User-Agent"] == USER_AGENT == "BridgedVideoGenerator/0.1"
 
 
 def test_get_json_raises_archive_error_on_a_bad_status(monkeypatch):

@@ -47,7 +47,7 @@ def test_align_to_script_handles_contractions_and_punctuation():
 
 
 def test_align_to_script_matches_curly_apostrophes_against_straight_ones():
-    # real Versed scripts use typographic quotes; whisper emits straight ones
+    # real scripts use typographic quotes; whisper emits straight ones
     recognized = _recognize(["It's", "not", "Tokyo's", "subway.", "They", "said", '"never."'])
     script_text = "It’s not Tokyo’s subway. They said “never.”"
 

@@ -10,7 +10,7 @@ from typing import Optional
 import requests
 
 # No contact details in here on purpose: this header goes to third-party archive servers.
-USER_AGENT = "VersedVideoGenerator/0.1"
+USER_AGENT = "BridgedVideoGenerator/0.1"
 MIN_PHOTO_LONG_SIDE = 1000  # a full-frame photo much smaller than this looks soft; the judge also checks
 MIN_FILM_SECONDS = 3.0
 _TIMEOUT = 30

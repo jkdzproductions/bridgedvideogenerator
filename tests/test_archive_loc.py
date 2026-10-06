@@ -89,7 +89,7 @@ def test_search_asks_for_digitized_images_in_the_date_range(monkeypatch):
     assert seen["url"] == "https://www.loc.gov/photos/"
     assert seen["params"] == {"q": "atlanta railroad", "fo": "json", "c": 9,
                               "fa": "online-format:image", "dates": "1855/1875"}
-    assert seen["headers"]["User-Agent"] == "VersedVideoGenerator/0.1"
+    assert seen["headers"]["User-Agent"] == "BridgedVideoGenerator/0.1"
 
 
 def test_search_without_a_range_sends_no_dates(monkeypatch):

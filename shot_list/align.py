@@ -46,7 +46,7 @@ _CURLY_TO_STRAIGHT = str.maketrans({"’": "'", "‘": "'", "“": '"', "”": '
 
 
 def _normalize(word: str) -> str:
-    # Versed scripts use typographic quotes (Tokyo’s); whisper emits straight ones
+    # Scripts use typographic quotes (Tokyo’s); whisper emits straight ones
     # (Tokyo's). Straighten first, then strip surrounding punctuation.
     return word.translate(_CURLY_TO_STRAIGHT).lower().strip(".,!?\"'—-")
 

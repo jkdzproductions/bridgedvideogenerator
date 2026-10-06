@@ -3,8 +3,21 @@ import json
 from shot_list.director_prompt import DESIGN_SYSTEM_SNAPSHOT
 
 
+# The display name of each type's starting template in the Bridged design system.
+TEMPLATE_NAMES = {
+    "diamond_flow": "Diamond flow",
+    "fan_out": "Fan-out",
+    "year_range": "Year range",
+    "then_vs_now": "Then vs now",
+    "chart_card": "Chart card",
+    "territory_map": "Territory map",
+    "network_map": "Network map",
+}
+
+
 def build_prompt_writer_prompt(archetype: str, data: dict, target_duration: float) -> str:
     data_json = json.dumps(data, indent=2)
+    template_name = TEMPLATE_NAMES[archetype]
 
     return f"""You are writing an authoring prompt for Claude Design's Animation template, for \
 one motion-graphic beat of a Bridged documentary video.
@@ -23,7 +36,7 @@ self-contained prompt that a person could paste directly into Claude Design's An
 template to have it generate this exact animation. Claude Design's own in-product AI reads \
 this prompt conversationally — write it as direct instructions to that AI, not as a \
 description written for a human. The Bridged design system is already attached to the canvas, \
-so tell the AI to use it rather than re-describing every token. The prompt must specify: the \
+so tell the AI to use it rather than re-describing every token, and to start from the design system's \"{template_name}\" template for this frame type (the instruction must contain exactly the words: start from the design system's "{template_name}" template). The prompt must specify: the \
 archetype's visual structure as the frame-type table describes it (look and ground), the \
 exact data values to show, and the design system's rules — its "one rule" from \
 "The one rule", its single typeface, and the correct ground/texture for this frame type. \

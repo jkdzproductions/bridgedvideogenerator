@@ -67,3 +67,23 @@ def test_prompt_writer_era_rule_has_modern_carve_out():
     assert "mid-20th century" in prompt
     assert "modern or satellite maps" in prompt
     assert "never add imagery" in prompt
+
+
+import pytest
+
+from motion_graphics.prompt_writer_prompt import TEMPLATE_NAMES
+from shot_list.models import ARCHETYPES
+
+
+def test_every_archetype_has_a_template_name():
+    assert set(TEMPLATE_NAMES) == ARCHETYPES
+
+
+@pytest.mark.parametrize("archetype,template", [
+    ("diamond_flow", "Diamond flow"), ("fan_out", "Fan-out"), ("year_range", "Year range"),
+    ("then_vs_now", "Then vs now"), ("chart_card", "Chart card"),
+    ("territory_map", "Territory map"), ("network_map", "Network map"),
+])
+def test_prompt_tells_claude_design_to_start_from_the_matching_template(archetype, template):
+    prompt = build_prompt_writer_prompt(archetype, {"x": 1}, 4.0)
+    assert f'start from the design system\'s "{template}" template' in prompt

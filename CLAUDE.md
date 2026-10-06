@@ -947,7 +947,8 @@ They predate the Cloudflare finding. See the note at the top of `motion_graphics
 **Before the first run** (one-time checks; none of these are done or checked by any step below):
 
 - [ ] `GRAPHICS_DESIGN_SYSTEM_NAME` is set in `.env` to the design system's exact display name,
-  and that design system has been built via `/design-sync` (see above).
+  and that design system exists in claude.ai/design (it does not need to be published: the
+  picker lists it by name while unpublished).
 - [ ] Chrome is logged into the claude.ai account that owns that design system. This stage never
   logs in; a login page mid-run is a stage-level STOP.
 - [ ] The Claude in Chrome extension is installed, connected to this Claude Code session, and has
@@ -956,6 +957,23 @@ They predate the Cloudflare finding. See the note at the top of `motion_graphics
 - [ ] Chrome saves downloads straight to `~/Downloads` with "Ask where to save each file before
   downloading" turned OFF (Chrome Settings > Downloads). Step 2f only looks in `~/Downloads`;
   a save-as prompt would leave the export sitting in a dialog nobody answers.
+
+**2026-10-06 run on the Bridged design system.** A live Stage 3 run on "Bridged Design System
+(Final)" rendered all 7 allowed types once each (one test clip per type, data from Josh's frames,
+4.0 s, 1920x1080, checked with ffprobe, reviewer approved all). `diamond_flow`, `year_range`,
+`then_vs_now`, `territory_map` and `network_map` were approved first try. `fan_out` needed one
+correction (first drew a ferry glyph; Claude Design then hand-drew a warship silhouette because its
+icon set has none). `chart_card` was approved first try, then Josh asked for plain ink chart text
+with no black chips: the snapshot now says so and a chat correction re-rendered it. Josh has
+individually approved only `diamond_flow` and `chart_card`; the other five are reviewer-approved
+and exported but not yet signed off by him. Open items for Josh: (a) the fan-out warship is
+hand-drawn, not from the design system; (b) glyph icons are Font Awesome Free stand-ins and flags
+load from flagcdn.com (internet needed); (c) satellite imagery needs a CC BY 4.0 credit (on screen
+in the territory map clip, hidden in the network map clip; belongs in the video description
+either way); (d) fan-out lays out ship-on-top with the tree below, and year_range sits slightly
+left of centre; (e) the design system's own Chart card template still draws a black chip around
+the title, which only Josh can change in Claude Design. The passes described below were run on
+the earlier generator's design system, before the Bridged one existed.
 
 **What has and hasn't been verified live (read before trusting this on a real video).** Two live
 passes have now run against the real product, on 2026-09-28: an initial single-beat pass (short
@@ -1042,6 +1060,21 @@ certainly hit every later beat the same way. See the catch-all at the end of Ste
 - **Never click** "Publish as artifact", "Copy link", or the "Who can access" dropdown in the
   Share panel. Never click "Undo" in the chat, the thumbs up/down or star rating, or "Present".
   None of them are part of this workflow.
+
+#### Live-run notes (2026-10-06)
+
+- Run ONE `javascript_tool` call at a time per tab; parallel evals time out and the renderer can
+  look frozen.
+- While a canvas is generating, JavaScript calls can time out (45 s). Wait with the `computer`
+  tool's `wait` action and take screenshots instead. A generation takes 3 to 7 minutes (maps
+  longest).
+- The first click after a fresh load of claude.ai/design is often lost: take a screenshot first
+  to wake the page, then click the design-system chip and confirm the list opened before typing.
+- In the Export dialog, wait about 3 s after clicking the Video "Download" row before clicking the
+  "Original size - 1920 x 1080" radio, and ALWAYS zoom to confirm that radio is filled before
+  clicking Export (once it silently stayed on 1280x720).
+- A Commons photo used in a clip needs a credit in the video description (for example the
+  Onassis photo: Pieter Jongerhuis for Anefo, Dutch National Archives, via Wikimedia Commons).
 
 ### Procedure W: wait for a generation or correction to finish
 

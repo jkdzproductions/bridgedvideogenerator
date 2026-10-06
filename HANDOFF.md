@@ -15,6 +15,37 @@ choose 7 graphic types: `diamond_flow`, `fan_out`, `year_range`, `then_vs_now`, 
 change it, the type list in `shot_list/director_prompt.py`, `TEMPLATE_NAMES` in
 `motion_graphics/prompt_writer_prompt.py` and the tests together.
 
+## Stage 3 live status (2026-10-06)
+Live-verified on "Bridged Design System (Final)": all 7 types rendered once each (one test clip
+per type, data from Josh's frames, 4.0 s, 1920x1080, ffprobe-checked, reviewer approved all).
+- `diamond_flow`: approved first try; Josh approved it.
+- `chart_card`: approved first try, then Josh asked for plain ink text with no black chips; the
+  snapshot says so (commit 05f458d) and the re-render was approved by the reviewer and Josh.
+- `fan_out`: one correction (first drew a ferry glyph; Claude Design hand-drew a warship because
+  its icon set has none). Reviewer-approved only.
+- `year_range`, `then_vs_now`, `territory_map`, `network_map`: approved first try by the reviewer;
+  Josh has not individually signed them off.
+
+Open items for Josh:
+- (a) The fan-out warship is hand-drawn by Claude Design, not from the design system (his own
+  frame 10 has a custom warship illustration).
+- (b) Glyph icons (ships, bank, oil well, hammer, factory, hard hat) are Font Awesome Free solid
+  stand-ins, not Bridged's icon set. Flags load from flagcdn.com (needs internet to preview or
+  export).
+- (c) Satellite imagery needs a credit (CC BY 4.0). The territory map clip kept a small on-screen
+  credit; the network map clip hid it. Josh has not ruled on on-screen vs description. Description
+  text: "Sentinel-2 cloudless by EOX IT Services GmbH (contains modified Copernicus Sentinel data
+  2016), CC BY 4.0".
+- (d) Fan-out lays out ship-on-top with the tree below (his frame 10 has ship left, tree right);
+  year_range sits slightly left of centre.
+- (e) The design system's own Chart card template still draws a black chip around the title
+  (its chip component always draws a box). Josh may want the template changed to plain text; only
+  he can do that in Claude Design.
+
+Photo credit: when a Commons photo is used, credit it in the video description (diamond_flow's
+Onassis photo: Pieter Jongerhuis for Anefo, Dutch National Archives, via Wikimedia Commons).
+Operational lessons for Stage 3 runs are in CLAUDE.md ("Live-run notes (2026-10-06)").
+
 ## Not built yet
 - `footage_callout`, `pin_chip` and `split_compare` (the design system has them) are drawn over
   footage. Stage 4 cannot composite a graphic over footage yet, so the director cannot choose them.
@@ -29,8 +60,8 @@ change it, the type list in `shot_list/director_prompt.py`, `TEMPLATE_NAMES` in
 When the design system changes, re-read its readme, `guidelines/bridged-style.md` and
 `guidelines/frame-archetypes.md` in claude.ai/design and update the snapshot. Keep the five
 headings (`tests/test_design_system_snapshot.py` pins them) and the Pre-ship checklist.
-The design system was not published when this was written; if the Stage 3 design-system picker
-cannot find it, publish it in Claude Design.
+Publishing the design system is not required: the Stage 3 picker lists it by name while it is
+unpublished.
 
 ## Shared with the Versed generator
 - The same `PEXELS_API_KEY` and `YOUTUBE_API_KEY` (YouTube's daily quota is per key, so the two

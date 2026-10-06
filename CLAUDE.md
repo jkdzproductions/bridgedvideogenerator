@@ -898,17 +898,20 @@ beat, one to three `["archive", ...]` entries per mixed beat won by stills (artw
 
 Run this after Stage 1 has produced `shot_list.json`. Requires `GRAPHICS_DESIGN_SYSTEM_NAME` in
 `.env`: the **exact display name** of the Claude Design design system to attach to every canvas,
-as it appears in claude.ai/design's "Design system" picker (not set yet: the Bridged
-design system has to be created first). It is a name, not an id: the
+as it appears in claude.ai/design's "Design system" picker (currently
+`GRAPHICS_DESIGN_SYSTEM_NAME="Bridged Design System (Final)"`). It is a name, not an id: the
 picker only selects by visible name. This is the Bridged design system project in
-Claude Design, which Josh builds from his own Bridged frames and font. Until it exists the local
-snapshot is a placeholder and Stage 3 must NOT be run. The placeholder lists 7 archetypes (`chart_card`, `definition`,
-`distance`, `org_chart`, `place_chip`, `route_overlay`, `territory_map`). The
+Claude Design, built from Josh's 18 Bridged frames and his Bridged font. It has 11 frame types; this
+pipeline renders 7 of them as graphics (`diamond_flow`, `fan_out`, `year_range`, `then_vs_now`,
+`chart_card`, `territory_map`, `network_map`). `footage_callout`, `pin_chip` and `split_compare` are
+drawn on top of footage and need overlay compositing that Stage 4 does not have yet, so the
+director cannot choose them. Article highlight and source exhibit are not graphic types: they are
+the page-highlight and show-as-is image features. The
 prompt-writer and reviewer subagents (and the Stage 1 director) read the local rules snapshot
 `design_system/bridged-design-system.md` by absolute path rather than the design system
 itself, since unattended subagents cannot read claude.ai. **Refresh that snapshot whenever the design
 system changes: re-copy the readme content from claude.ai/design, but PRESERVE the snapshot's
-header pipeline notes (the 7 archetypes) and its "Pre-ship checklist"
+header pipeline notes (the 7 allowed types, the 3 coming ones, the multi-country colour rule) and its "Pre-ship checklist"
 section (or re-derive the checklist from the new rules and keep the section heading unchanged),
 because the pipeline added them and the reviewer prompt depends on that checklist**, and rebuild
 it via `/design-sync` when Josh's frames change. `/design-sync` is a manual step you run

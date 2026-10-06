@@ -1,24 +1,36 @@
 # Bridged Video Generator — Handoff
 
-Created 2026-10-05 as a copy of the Versed video generator (Versed's `main` at `b293084`),
-with the Bridged design system left to be built. Design: `docs/superpowers/specs/2026-10-05-bridged-video-generator-design.md`.
-Plan: `docs/superpowers/plans/2026-10-05-bridged-video-generator.md`.
+Created 2026-10-05 as a copy of the Versed video generator; updated 2026-10-06 for the real
+Bridged design system. Designs: `docs/superpowers/specs/`. Plans: `docs/superpowers/plans/`.
 
-## What works today
-Stages 1, 2 and 4 (shot list, footage sourcing, final assembly) work exactly as in the original,
-including the 10-channel YouTube blacklist (`footage/youtube_channels.py`), the 1,000,000-subscriber
-rule, and the YouTube look (mirror, 3% zoom, light grain, half-strength vignette).
+## What works
+Stages 1, 2 and 4 (shot list, footage sourcing, final assembly) work as in the original, including
+the 10-channel YouTube blacklist (`footage/youtube_channels.py`), the 1,000,000-subscriber rule and
+the YouTube look (mirror, 3% zoom, light grain, half-strength vignette).
 
-## What is blocked: Stage 3 (motion graphics)
-`design_system/bridged-design-system.md` is a PLACEHOLDER. Do not run Stage 3 until:
-1. Josh builds the Bridged design system in claude.ai/design (palette, typeface, frame types) and
-   puts his example frames and font in `design-assets/` (the font is gitignored).
-2. The design system's readme is copied over `design_system/bridged-design-system.md`, keeping the
-   headings "The one rule", "The 7 frame types", "Content fundamentals", "Visual foundations" and
-   "Pre-ship checklist" (`tests/test_design_system_snapshot.py` pins them).
-3. `GRAPHICS_DESIGN_SYSTEM_NAME` is added to `.env`: the design system's exact display name.
-4. If the design system defines a different set of frame types, `ARCHETYPES` in
-   `shot_list/models.py`, the lists in `shot_list/director_prompt.py` and the tests change together.
+Stage 3 (motion graphics) uses "Bridged Design System (Final)" (`GRAPHICS_DESIGN_SYSTEM_NAME` in
+`.env`) and the local rules snapshot `design_system/bridged-design-system.md`. The director can
+choose 7 graphic types: `diamond_flow`, `fan_out`, `year_range`, `then_vs_now`, `chart_card`,
+`territory_map`, `network_map`. The allowed list lives in `ARCHETYPES` in `shot_list/models.py`;
+change it, the type list in `shot_list/director_prompt.py`, `TEMPLATE_NAMES` in
+`motion_graphics/prompt_writer_prompt.py` and the tests together.
+
+## Not built yet
+- `footage_callout`, `pin_chip` and `split_compare` (the design system has them) are drawn over
+  footage. Stage 4 cannot composite a graphic over footage yet, so the director cannot choose them.
+  Building that (transparent clips from Stage 3 plus a compositing step in Stage 4) is the next
+  piece of work.
+- Article highlight and source exhibit are not graphic types: use a linked page (`#:~:text=`
+  highlight) and a non-italic image link in the script.
+- Logistics-specific footage query tuning (after a first real test video).
+- A first real end-to-end run with a real Bridged script and voiceover.
+
+## Keeping the snapshot in sync
+When the design system changes, re-read its readme, `guidelines/bridged-style.md` and
+`guidelines/frame-archetypes.md` in claude.ai/design and update the snapshot. Keep the five
+headings (`tests/test_design_system_snapshot.py` pins them) and the Pre-ship checklist.
+The design system was not published when this was written; if the Stage 3 design-system picker
+cannot find it, publish it in Claude Design.
 
 ## Shared with the Versed generator
 - The same `PEXELS_API_KEY` and `YOUTUBE_API_KEY` (YouTube's daily quota is per key, so the two
@@ -27,7 +39,5 @@ rule, and the YouTube look (mirror, 3% zoom, light grain, half-strength vignette
   the session expired, re-run `tests/fixtures/envato_automation_spike.py` and log in with email and
   password (not "Sign in with Google").
 
-## Not done yet
-- No GitHub repo (Josh decides when).
-- Logistics-specific footage query tuning (after a first real test with a Bridged script and voiceover).
-- A first real end-to-end run.
+## Not committed on purpose
+`design-assets/` (your font and frames), `.env`, the Envato profile and the `.venv` are gitignored.

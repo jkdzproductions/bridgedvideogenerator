@@ -76,12 +76,18 @@ def test_beat_with_non_positive_duration_raises():
         validate_shot_list(shot_list)
 
 
-def test_archetypes_are_exactly_the_seven():
+def test_archetypes_are_exactly_the_seven_bridged_types():
     from shot_list.models import ARCHETYPES
     assert ARCHETYPES == {
-        "chart_card", "definition", "distance", "org_chart",
-        "place_chip", "route_overlay", "territory_map",
+        "diamond_flow", "fan_out", "year_range", "then_vs_now",
+        "chart_card", "territory_map", "network_map",
     }
+
+
+def test_overlay_types_are_not_allowed_yet():
+    from shot_list.models import ARCHETYPES
+    for name in ("footage_callout", "pin_chip", "split_compare"):
+        assert name not in ARCHETYPES
 
 
 import dataclasses

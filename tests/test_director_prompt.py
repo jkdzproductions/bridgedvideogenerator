@@ -36,9 +36,12 @@ def test_prompt_instructs_exactly_one_entry_per_segment():
 def test_prompt_lists_all_seven_types_and_note_rule():
     prompt = build_director_prompt([Segment("graphic", "x", 0, 5)])
 
-    for name in ("chart_card", "definition", "distance", "org_chart",
-                 "place_chip", "route_overlay", "territory_map"):
+    for name in ("diamond_flow", "fan_out", "year_range", "then_vs_now",
+                 "chart_card", "territory_map", "network_map"):
         assert name in prompt
+    for old in ("definition", "distance", "org_chart", "place_chip", "route_overlay",
+                "footage_callout", "pin_chip", "split_compare"):
+        assert old not in prompt
     assert '"note"' in prompt
     assert '"archetype": "chart_card"' in prompt
 

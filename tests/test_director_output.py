@@ -116,12 +116,18 @@ def test_json_wrapped_in_a_code_fence_is_accepted(fence):
 
 
 @pytest.mark.parametrize("archetype", [
-    "chart_card", "definition", "distance", "org_chart",
-    "place_chip", "route_overlay", "territory_map",
+    "diamond_flow", "fan_out", "year_range", "then_vs_now",
+    "chart_card", "territory_map", "network_map",
 ])
 def test_each_of_the_seven_archetypes_is_accepted(archetype):
     result = parse_director_output(_valid_raw({"archetype": archetype}), SEGMENTS)
     assert result[1]["archetype"] == archetype
+
+
+@pytest.mark.parametrize("archetype", ["footage_callout", "pin_chip", "split_compare", "distance", "org_chart"])
+def test_deferred_and_old_archetypes_are_rejected(archetype):
+    with pytest.raises(DirectorOutputError, match="unknown archetype"):
+        parse_director_output(_valid_raw({"archetype": archetype}), SEGMENTS)
 
 
 def test_unknown_archetype_is_rejected():

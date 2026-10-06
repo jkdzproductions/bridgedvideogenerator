@@ -81,7 +81,7 @@ def build_director_prompt(segments: list[Segment], provided_data: Optional[dict]
 
 First, Read {DESIGN_SYSTEM_SNAPSHOT} (the Bridged design system). Do not invoke any \
 skill. Its "The 7 frame types" table defines the only graphic archetypes you may use: \
-chart_card, definition, distance, org_chart, place_chip, route_overlay, territory_map.
+diamond_flow, fan_out, year_range, then_vs_now, chart_card, territory_map, network_map.
 
 Below is the script, already split into {len(segments)} ordered segments. Each "graphic" \
 segment must become a motion graphic. Each "plain" segment is real stock footage; do not \

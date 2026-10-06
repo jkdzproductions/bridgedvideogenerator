@@ -2,13 +2,13 @@ from dataclasses import dataclass
 from typing import Literal, Optional
 
 ARCHETYPES = {
+    "diamond_flow",
+    "fan_out",
+    "year_range",
+    "then_vs_now",
     "chart_card",
-    "definition",
-    "distance",
-    "org_chart",
-    "place_chip",
-    "route_overlay",
     "territory_map",
+    "network_map",
 }
 
 

@@ -10,12 +10,12 @@ def _prompt(**kw):
 
 
 def test_prompt_includes_archetype_data_and_screenshot_path():
-    prompt = _prompt(archetype="distance", data={"time": "6 hours", "distance": "110 mi"},
+    prompt = _prompt(archetype="then_vs_now", data={"then": "400 Ships", "now": "100 Ships"},
                      screenshot_path="/tmp/beat_1_attempt_1.png")
 
-    assert "distance" in prompt
-    assert "6 hours" in prompt
-    assert "110 mi" in prompt
+    assert "then_vs_now" in prompt
+    assert "400 Ships" in prompt
+    assert "100 Ships" in prompt
     assert "/tmp/beat_1_attempt_1.png" in prompt
     assert "1 of 3" in prompt
 

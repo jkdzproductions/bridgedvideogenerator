@@ -28,7 +28,7 @@ def test_graphic_beats_returns_empty_list_when_all_footage():
 
 
 def test_graphic_beats_preserves_order_across_multiple_graphic_beats():
-    spec_a = GraphicSpec("distance", {"rows": []})
+    spec_a = GraphicSpec("year_range", {"rows": []})
     spec_b = GraphicSpec("chart_card", {"series": []})
     shot_list = ShotList(
         beats=[

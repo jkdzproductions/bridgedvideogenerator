@@ -12,10 +12,10 @@ def build_reviewer_prompt(
 ) -> str:
     data_json = json.dumps(data, indent=2)
 
-    return f"""You are reviewing a rendered motion-graphic beat for a Versed documentary video, \
+    return f"""You are reviewing a rendered motion-graphic beat for a Bridged documentary video, \
 attempt {attempt} of {max_attempts}.
 
-First, Read {DESIGN_SYSTEM_SNAPSHOT} (the Versed design system rules). Do not invoke any \
+First, Read {DESIGN_SYSTEM_SNAPSHOT} (the Bridged design system rules). Do not invoke any \
 skill. You will judge against its "Pre-ship checklist" section.
 
 Target archetype: {archetype}
@@ -26,9 +26,9 @@ Use your Read tool to actually view the screenshot at this path before judging â
 {screenshot_path}
 
 Judge against the design system's "Pre-ship checklist" (every item): exactly the target frame \
-type with the data above and no wrong, missing, or fabricated values; red only marking the \
-subject; one clear focal point; a single typeface (Nagel), no serif; the right ground/texture \
-for this frame type and no drop shadows on shapes; comma-formatted numbers and short labels; \
+type with the data above and no wrong, missing, or fabricated values; the design system's one rule \
+obeyed; one clear focal point; the design system's single typeface; the right ground/texture \
+for this frame type; comma-formatted numbers and short labels; \
 and legibility at phone size (480p). Also judge era: if the data names a historical year or \
 period, the imagery matches that era (no modern buildings, skylines, vehicles or photography \
 for a historical year; the closest available older view is acceptable, an exact-year match is \

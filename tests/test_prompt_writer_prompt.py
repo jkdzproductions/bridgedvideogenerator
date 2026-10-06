@@ -23,8 +23,8 @@ def test_prompt_reads_snapshot_by_absolute_path_and_asks_for_json():
     assert "Do not invoke any skill" in prompt
     assert "authoring_prompt" in prompt
     assert "already attached" in prompt
-    assert "Nagel" in prompt
-    assert "Red marks the subject" in prompt
+    assert "The one rule" in prompt
+    assert "Nagel" not in prompt
 
 
 def test_prompt_notes_the_clip_is_silent():

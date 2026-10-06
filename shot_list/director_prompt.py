@@ -77,9 +77,9 @@ def build_director_prompt(segments: list[Segment], provided_data: Optional[dict]
     page_note = _PAGE_HIGHLIGHT_NOTE if any(s.kind == "page_highlight" for s in segments) else ""
     image_note = _IMAGE_NOTE if any(s.kind == "image" for s in segments) else ""
 
-    return f"""You are the director agent for a Versed documentary video.
+    return f"""You are the director agent for a Bridged documentary video.
 
-First, Read {DESIGN_SYSTEM_SNAPSHOT} (the Versed design system). Do not invoke any \
+First, Read {DESIGN_SYSTEM_SNAPSHOT} (the Bridged design system). Do not invoke any \
 skill. Its "The 7 frame types" table defines the only graphic archetypes you may use: \
 chart_card, definition, distance, org_chart, place_chip, route_overlay, territory_map.
 

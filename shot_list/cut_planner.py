@@ -65,7 +65,7 @@ def build_cut_planner_prompt(cuts: list[FootageCut]) -> str:
         )
     cut_lines = "\n".join(lines)
 
-    return f"""You are the footage planner for a Versed documentary video. The narration has \
+    return f"""You are the footage planner for a Bridged documentary video. The narration has \
 already been cut into {len(cuts)} footage shots, each shown for a few seconds. For each shot, \
 choose what real stock footage should be on screen while those exact words are spoken.
 

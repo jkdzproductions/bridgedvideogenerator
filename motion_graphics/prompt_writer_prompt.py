@@ -7,9 +7,9 @@ def build_prompt_writer_prompt(archetype: str, data: dict, target_duration: floa
     data_json = json.dumps(data, indent=2)
 
     return f"""You are writing an authoring prompt for Claude Design's Animation template, for \
-one motion-graphic beat of a Versed documentary video.
+one motion-graphic beat of a Bridged documentary video.
 
-First, Read {DESIGN_SYSTEM_SNAPSHOT} (the Versed design system rules). Do not invoke any \
+First, Read {DESIGN_SYSTEM_SNAPSHOT} (the Bridged design system rules). Do not invoke any \
 skill. You need its "The 7 frame types" table, "The one rule", "Visual foundations", and \
 "Content fundamentals" sections.
 
@@ -22,11 +22,11 @@ Using the design system's rules for the "{archetype}" frame type, write a single
 self-contained prompt that a person could paste directly into Claude Design's Animation \
 template to have it generate this exact animation. Claude Design's own in-product AI reads \
 this prompt conversationally — write it as direct instructions to that AI, not as a \
-description written for a human. The Versed design system is already attached to the canvas, \
+description written for a human. The Bridged design system is already attached to the canvas, \
 so tell the AI to use it rather than re-describing every token. The prompt must specify: the \
 archetype's visual structure as the frame-type table describes it (look and ground), the \
-exact data values to show, and the design system's rules — "Red marks the subject" and \
-nothing else, Nagel is the only typeface, and the correct ground/texture for this frame type. \
+exact data values to show, and the design system's rules — its "one rule" from \
+"The one rule", its single typeface, and the correct ground/texture for this frame type. \
 If the graphic highlights two or more neighboring countries, the prompt must tell the AI to \
 give each country its own distinct color (never the same color for all of them, and no blue) \
 and to draw the border where the neighboring countries meet as a clearly visible line, so they \

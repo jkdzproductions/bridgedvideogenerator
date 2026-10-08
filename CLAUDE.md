@@ -963,8 +963,8 @@ same video. It is lower-risk than what these passes already covered.
 
 **Per-beat flags vs. stage-level STOPs.** Like Stage 2's "NO ACCEPTABLE FOOTAGE", a reviewer
 verdict against one beat does not end the stage. When Step 2d prints `GRAPHIC BEAT REJECTED` or
-`GRAPHIC BEAT NOT APPROVED`, flag that beat, stop working on it, close its tab, and continue with
-the next graphic beat; Step 3 lists the flagged beats. Every other "STOP" in this stage (anything
+`GRAPHIC BEAT NOT APPROVED`, flag that beat, stop working on it, and continue with the other
+beats of its group (its tab stays open until the whole group is done, Step 2 G6); Step 3 lists the flagged beats. Every other "STOP" in this stage (anything
 Step 2d's two verdicts don't cover: browser tools unreachable, claude.ai not loading, a
 Cloudflare or login page, no design system matching the name, a UI step that doesn't match the
 description, a parse or verification error) ends the whole stage, because it will almost
@@ -976,7 +976,10 @@ certainly hit every later beat the same way. See the catch-all at the end of Ste
   `claude-in-chrome` skill, then load the core set in ONE `ToolSearch` call:
   `select:mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__tabs_create_mcp,mcp__claude-in-chrome__tabs_close_mcp,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__find,mcp__claude-in-chrome__browser_batch`.
   Call `tabs_context_mcp` first. Then create your OWN tab with `tabs_create_mcp` for each graphic
-  beat. Never reuse a tab id from another session, and close your tab when that beat is done.
+  beat (up to three at a time, one per beat of the current group: Step 2 "Three canvases at a
+  time"). Never reuse a tab id from another session, and close a group's tabs only when every beat
+  of that group is exported or flagged (Step 2 G6), never while another tab's generation or export
+  is running.
   After `tabs_close_mcp` inside a `browser_batch`, later items in that batch fail, so make it the
   last item. **Closing a tab can tear down the whole tracked tab group even when another tab of
   yours is still open**, observed live running two beats' tabs at once: closing beat 0's tab
@@ -1233,11 +1236,137 @@ Run this on a canvas whose latest turn has settled (Procedure W):
    and confirm with the user that this is the right shot list (a video whose only italic spans are page highlights and/or show-as-is images (non-graphic spans) has no graphic beats; Stage 3 is simply not needed then, so do not stop to ask: skip to Stage 4). Do not clear `graphics_output/` for
    a video that has nothing to render.
 
-2. Read `graphic_beats.json`. For EACH `(beat_index, graphic, target_duration)` entry, in order,
-   run sub-steps a-f. Create a fresh browser tab for the beat when you first need it (sub-step b),
-   and close it after the beat finishes or is flagged. A beat flagged in sub-step d (rejected, or
-   not approved within the attempt cap) is set aside and the loop moves on to the next entry; any
-   other STOP in this step ends the whole stage (see "Per-beat flags vs. stage-level STOPs" above).
+2. Read `graphic_beats.json`. Every entry `(beat_index, graphic, target_duration)` goes through
+   sub-steps a-f below, but up to THREE beats are worked on at a time, in groups, as described in
+   "Three canvases at a time" right here. Sub-steps a-f are the per-beat procedure: their commands,
+   checks, state files and STOP rules are unchanged. A beat flagged in sub-step d (rejected, or not
+   approved within the attempt cap) is set aside while the rest of its group continues; any other
+   STOP in this step ends the whole stage (see "Per-beat flags vs. stage-level STOPs" above).
+
+   **Why.** One generation takes 3 to 7 minutes, mostly waiting; a real run did 19 graphics one at
+   a time in about 3 hours. Running three canvases side by side overlaps those waits.
+
+   **FIRST-USE CAUTION.** The 3-at-a-time pipeline is untested live. Only TWO concurrent canvases
+   were ever tried (2026-09-28: a second tab's canvas created while the first tab's export was
+   running; and two first generations at the same time, both settled correctly). On the first
+   real use, watch every tab for a generation error, an "interrupted" message, an unusually slow
+   generation (over 10 minutes, see Procedure W) or any sign of throttling or rate limiting. If any
+   of these happens, finish or flag the beats already in the browser, then FALL BACK TO ONE BEAT
+   AT A TIME (groups of one: exactly the earlier sequential loop) for the rest of the stage, and
+   tell Josh in the Step 3 report what happened. Groups of two are a middle step if one at a time
+   is too slow and three misbehaved.
+
+   **Three canvases at a time (the Step 2 loop).** Take the next three entries of
+   `graphic_beats.json` in order (fewer for the last group) and run them as one group:
+
+   G1. **Prompts (no browser).** For each beat of the group run sub-step a's command, then spawn
+      the three prompt-writer subagents at the same time (one Agent call each, in one message).
+      As each answers, save its response and run sub-step b's parse command for that beat, then
+      do sub-step b's **exact data strings check** (below sub-step b's parse command) before that
+      beat's prompt goes anywhere near the browser. You may do G1 for the NEXT group while the
+      current group is still in the browser (it only writes that next group's own per-beat files).
+   G2. **Tabs and submits (one browser, one tab group, one tab at a time).** Call
+      `tabs_context_mcp` (with `createIfEmpty: true` if no tab group exists), then create one
+      tab per beat with `tabs_create_mcp` (three tabs in the same tab group). Then, for the
+      FIRST beat's tab, do sub-step b's browser parts 1 to 6 completely (homepage, design-system
+      chip, Animation card, typing the prompt, the submit `browser_batch` with `window.__mg =
+      undefined` and the first Procedure W poll, the lost-click check, and the "Animated video"
+      chip check). Only then do the same for the second beat's tab, then the third. Never send two
+      tool calls at once, and never two `javascript_tool` calls at once on the same tab: run one
+      call, wait for its result, then the next (parallel evals time out, see "Live-run notes").
+      Write down each beat's project URL (`https://claude.ai/design/p/<project-uuid>`, from
+      the first Procedure W poll's `url`) next to its beat index in your own notes: it is how you
+      find the canvas again if the tab group is torn down before `canvas_<beat_index>.json` exists.
+   G3. **Wait on all tabs in turn.** `window.__mg` lives on each page, so each tab has its own
+      tracker; reset it only in that tab's own submit or correction `browser_batch`, never from
+      another tab. Poll the unsettled tabs round-robin with the **short poll** below (one
+      `javascript_tool` call on one tab, then the next tab), and between rounds wait with the
+      `computer` tool's `wait` action (about 20 to 30 seconds) instead of running the 30-second
+      Procedure W loop on one tab while the others sit. While a canvas is generating, a
+      JavaScript call can still time out (about 45 s; see "Live-run notes"): if a short poll on a
+      tab times out, take a screenshot of that tab instead and poll it again next round. The
+      10-minute limit of Procedure W applies to each tab separately (`elapsed_s` counts from that
+      tab's own submit). The short poll is the Procedure W snippet with its first loop budget cut
+      from 30 to 5 seconds; it reads and updates the same per-tab tracker, and the 30 seconds of
+      continuous idle needed to settle are measured across polls by `doneSince`:
+
+      ```js
+      const W = (window.__mg ??= { sawWorking: false, doneSince: null, start: Date.now() });
+      const isIdle = () => {
+        const btns = [...document.querySelectorAll('button')].filter(b => b.offsetParent);
+        const stop = btns.some(b => b.getAttribute('aria-label') === 'Stop' || b.title === 'Stop');
+        const send = btns.some(b => b.title === 'Send (Enter)');
+        const checking = document.body.innerText.includes('Checking the design for issues');
+        return send && !stop && !checking && !document.title.startsWith('✶');
+      };
+      const t0 = Date.now();
+      while (Date.now() - t0 < 5000) {
+        if (!isIdle()) { W.sawWorking = true; W.doneSince = null; }
+        else if (W.sawWorking) {
+          W.doneSince ??= Date.now();
+          if (Date.now() - W.doneSince >= 30000) break;
+        }
+        await new Promise(r => setTimeout(r, 500));
+      }
+      ({ settled: W.sawWorking && W.doneSince !== null && Date.now() - W.doneSince >= 30000,
+         sawWorking: W.sawWorking, elapsed_s: (Date.now() - W.start) / 1000,
+         title: document.title, url: location.href })
+      ```
+
+      Keep the full 30-second Procedure W snippet as the poll INSIDE every submit or correction
+      `browser_batch` (sub-step b part 5 and sub-step e part 3): that first poll is what sees the
+      turn start (`sawWorking`), which a short poll a minute later could miss on a fast
+      correction, and it is what the lost-click checks read. Short polls are only for the rounds
+      after that.
+   G4. **As each tab settles**, finish that beat's sub-step b there (parts 7 and 8: the `.dc.html`
+      check and Procedure S in that tab), run the record command, and spawn that beat's reviewer
+      (sub-step c) in the background. Reviewers for different beats may run at the same time.
+      Keep polling the other tabs while reviewers work. When a reviewer answers, run sub-step d for
+      that beat. A correction (sub-step e) is done in that beat's own tab; its submit batch resets
+      only that tab's tracker; the beat then goes back into the G3 round-robin until it settles,
+      gets a new Procedure S screenshot, and is reviewed again (the attempt cap is per beat,
+      exactly as before). Sub-step e's "do not move on to the next beat" now means: this beat
+      does not go to export until it is approved; the other beats of the group carry on.
+   G5. **Exports one at a time.** An approved beat waits for the export slot. Only ONE beat is
+      exported at a time, from start to finish: Procedure E steps 1 to 6 in that beat's tab, then
+      Step 2f's command (find the download, move it, ffprobe-verify it) and clicking "Done".
+      Only after Step 2f has printed `exported and verified` (or the stage has stopped) may the
+      next approved beat's export start. Reasons: the export needs that tab's visibility override
+      to keep running, the export dialog is clicked by coordinates from that tab's screenshot,
+      and Step 2f matches the download by time and refuses to guess if two new `.mp4` files
+      arrive. While an export is running, make no tool calls on the other tabs (their
+      generations keep running on their own); resume polling them after Step 2f.
+   G6. **Close the group's tabs only at the end.** Do NOT close a tab when its beat is exported or
+      flagged: closing one tab can tear down the whole tracked tab group, including tabs whose
+      generation or export is still running (see "Browser setup and ground rules"). When every
+      beat of the group is exported or flagged, close all of the group's tabs (one
+      `tabs_close_mcp` per tab; inside a `browser_batch` it must be the last item), then start
+      the next group at G1 (or G2, if its prompts are already done) with `tabs_context_mcp`
+      `createIfEmpty: true`.
+
+   **If the tab group is torn down mid-group** (a tool call fails with "tab group no longer
+   exists" or "couldn't determine which page this action targets"): call `tabs_context_mcp` with
+   `createIfEmpty: true`, create a tab for each unfinished beat, and navigate each to its canvas
+   URL (from `canvas_<beat_index>.json`, or the project URL in your notes if that file does not
+   exist yet). Wait about 6 seconds and check each canvas's state BEFORE doing anything else in
+   it (a screenshot, or `document.body.innerText`): (1) if the chat shows "We got interrupted",
+   that generation was cut off and must be re-run from a FRESH canvas: start that beat again at
+   sub-step b part 1 in a new tab (keep its existing authoring prompt; never resubmit into the
+   interrupted canvas); (2) if it is still working, resume polling it (the navigation reset its
+   tracker; a fresh Procedure W poll sees the work and continues normally, but its `elapsed_s`
+   restarts, so count the 10-minute limit from the original submit yourself); (3) if it is idle
+   with a complete response, it finished while detached: use Procedure W's "reattaching to a turn
+   that already finished elsewhere" check, then continue with that beat's next sub-step. A beat
+   whose export was interrupted restarts Procedure E from step 1 (a new export start time) once
+   no other export is running.
+
+   **Per-beat state files are unchanged.** Every beat still writes exactly the same files, with
+   the same names and contents, as in the one-at-a-time loop: `prompt_writer_prompt_<n>.txt`,
+   `prompt_writer_response_<n>.txt`, `authoring_prompt_<n>.txt`, `canvas_<n>.json`,
+   `review_state_<n>.json`, `graphics_screenshots/beat_<n>_attempt_<k>.png`,
+   `reviewer_prompt_<n>_<k>.txt`, `reviewer_response_<n>_<k>.txt`, `correction_<n>_<k>.txt`,
+   `export_started_<n>.txt` and `graphics_output/beat_<n>.mp4`. They are all keyed by beat index, so
+   three beats in flight never share a file. Run each command with that beat's own index.
 
    a. Build the prompt-writer subagent's instructions and spawn it (Opus):
 
@@ -1280,6 +1409,19 @@ Run this on a canvas whose latest turn has settled (Procedure W):
 
       If `parse_prompt_writer_output` raises `PromptWriterOutputError`, STOP and report it. Do not
       hand-patch the response and continue.
+
+      **Exact data strings check (before submitting).** Read `authoring_prompt_<beat_index>.txt`
+      next to the beat's `data` in `graphic_beats.json` and re-check every string that will be
+      shown on screen (title, labels, names, places, figures, units, dates) character for
+      character: the same capitalization, the same digits and separators, the same spelling of
+      names. Prompt writers repeatedly changed capitalization in live runs (for example `26 Miles`
+      where the data says `26 miles`). If anything differs, send a follow-up message (SendMessage)
+      to the SAME prompt-writer subagent naming each changed string and its exact form from the
+      data, and asking for its full corrected response; save that response over
+      `prompt_writer_response_<beat_index>.txt`, re-run the parse command above, and check again.
+      Never fix the authoring prompt by hand. A follow-up to the same prompt writer fixed this
+      every time it was tried. Fields that are notes for the writer rather than on-screen text
+      (for example `note`, `style`, a layer description) do not have to appear verbatim.
 
       Then create the canvas in the browser. **Do these in this order.** Each part was verified
       live, and skipping the template click silently produces the wrong format.
@@ -1428,8 +1570,9 @@ Run this on a canvas whose latest turn has settled (Procedure W):
 
       If this exits with status 2 (`GRAPHIC BEAT REJECTED` or `GRAPHIC BEAT NOT APPROVED`), stop
       working on THIS beat only: note its index, archetype, the reasoning printed, and its canvas
-      URL from `canvas_<beat_index>.json` for Step 3's report, close its tab, and continue with
-      the next entry in `graphic_beats.json`. This is a per-beat flag, not a stage failure, the
+      URL from `canvas_<beat_index>.json` for Step 3's report, and continue with the other beats
+      of its group (leave its tab open: the group's tabs are closed together in G6, never one by
+      one while another tab's generation or export is running). This is a per-beat flag, not a stage failure, the
       same as Stage 2's "NO ACCEPTABLE FOOTAGE". Do not re-run the reviewer yourself, approve it
       on your own judgment, or export it. No clip is written for a flagged beat. If
       `parse_reviewer_output` raises `ReviewerOutputError` (a malformed reviewer response), that
@@ -1438,6 +1581,14 @@ Run this on a canvas whose latest turn has settled (Procedure W):
 
    e. **Send the correction** (only when 2d printed "NEXT: send correction"):
 
+      0. **Exact data strings check (before submitting the correction).** Re-check every
+         on-screen string that `correction_<beat_index>_<attempt>.txt` mentions against the beat's
+         `data` in `graphic_beats.json`, exactly as in sub-step b's check (capitalization,
+         numbers, names). If the reviewer's correction changes one (for example asks for
+         `26 Miles` where the data says `26 miles`), send a follow-up message (SendMessage) to the
+         SAME reviewer subagent naming the string and its exact form, save its full corrected
+         response over `reviewer_response_<beat_index>_<attempt>.txt`, re-run sub-step d (which
+         rewrites the correction file) and check again. Never edit the correction file by hand.
       1. Navigate the beat's tab to the canvas URL from `canvas_<beat_index>.json`, then wait
          about 6 seconds. Chat history, canvas, and timeline all come back, even in a brand-new
          tab. This was verified live.
@@ -1449,7 +1600,8 @@ Run this on a canvas whose latest turn has settled (Procedure W):
          click it and type again, then re-check.
       3. `find` "Send button". It is the button titled "Send (Enter)". Then, in one
          `browser_batch`: run `window.__mg = undefined`, click that ref, and run the Procedure W
-         snippet. Keep running Procedure W until `settled: true`. Take a screenshot to confirm the
+         snippet. Keep running Procedure W until `settled: true` (in a group, after this first
+         30-second poll the beat joins the G3 round-robin of short polls). Take a screenshot to confirm the
          chat shows your correction as a new message, followed by a reply describing what changed.
          If `sawWorking` is still `false` after the first 30-second poll, the message probably
          wasn't sent. Check the screenshot before doing anything else. Check that the URL's
@@ -1474,7 +1626,8 @@ Run this on a canvas whose latest turn has settled (Procedure W):
       ```
 
       Then go back to sub-step 2c for the SAME beat. The attempt number has already advanced in
-      `review_state_<beat_index>.json`. Do not move on to the next beat.
+      `review_state_<beat_index>.json`. Do not move this beat on to export (or start a later
+      group) until it is approved or flagged; the other beats of its group carry on meanwhile.
 
    f. **Export** (only when 2d printed "NEXT: export"): run Procedure E steps 1-6. Then move the
       download into place and verify it. This waits up to 60 seconds for exactly one new `.mp4`
@@ -1535,7 +1688,8 @@ Run this on a canvas whose latest turn has settled (Procedure W):
 
       If it exits with status 3 (`NO DOWNLOAD`), click the dialog's "Download" button exactly once
       and run this command again. If it still exits 3, STOP and report it. Once it succeeds,
-      click "Done" in the dialog and close the beat's tab. If it raises `RuntimeError` (more than
+      click "Done" in the dialog. Do not close the beat's tab yet: the group's tabs are closed
+      together in G6, and the next approved beat's export may start now (G5). If it raises `RuntimeError` (more than
       one new `.mp4`), STOP and report the file list. Do not guess which one is right. If
       it raises `ClipVerificationError` (missing file, too small, unreadable by `ffprobe`, duration
       more than 1 second off target, or resolution not exactly 1920×1080), STOP and report the
@@ -1551,7 +1705,10 @@ Run this on a canvas whose latest turn has settled (Procedure W):
    button, an unexpected dialog, or anything else that differs from the UI described here. These
    are stage-level because they will almost certainly repeat on every later beat. Report the beat
    index, the canvas URL if one exists, what you did, and what you saw, including a screenshot,
-   plus which beats (if any) were already exported or flagged before the stop. Do not retry
+   plus which beats (if any) were already exported or flagged before the stop. When several beats
+   were in flight (a group), report each one's state: its canvas or project URL, its last
+   attempt, and whether its generation was still running (it keeps running in claude.ai/design;
+   do not close the tabs, so Josh can look). Do not retry
    blindly, and do not improvise a different path through the product.
 
 3. Report to the user: how many graphic beats were rendered, how many (if any) were flagged as

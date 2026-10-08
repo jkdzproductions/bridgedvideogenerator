@@ -28,6 +28,14 @@ Plain-language explanations; he asks before anything is pushed (he said "push" e
 ### 4. Session scratch
 Generated test files (`graphic_beats.json`, `canvas_*.json`, `reviewer_*`, `authoring_prompt_*`, `graphics_screenshots/`, `graphics_output/` with the 7 test clips) are gitignored in this folder and can be deleted or left. The 7+3 test projects in Josh's Claude Design account can be deleted by him.
 
+## Stage 2 speed work (2026-10-08, branch from the 13-hour live run)
+Stage 2 now runs in batches with `python -m footage.batch` (CLAUDE.md Stage 2, "Speed" note): prep many beats
+on a 4-thread pool, up to 8 judges in parallel, apply in beat order (duplicate winners refused, never swapped).
+Archive HTTP retries 429/5xx/broken downloads with backoff and logs rate-limit headers; Commons judge
+thumbnails are 960 px renditions, not originals. Envato `.zip` downloads are unzipped before trimming. Quota
+recording is thread/process safe. Not yet run live end to end: the first real run should watch the
+`[beat n] WARNING` lines and the per-beat summary.
+
 ## What works
 Stages 1, 2 and 4 (shot list, footage sourcing, final assembly) work as in the original, including
 the 10-channel YouTube blacklist (`footage/youtube_channels.py`), the 1,000,000-subscriber rule and

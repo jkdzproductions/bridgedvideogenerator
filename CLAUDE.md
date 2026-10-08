@@ -509,9 +509,9 @@ If a run stops partway through because of quota exhaustion (either `check_prefli
 before anything started, or a live 403/`quotaExceeded` from the YouTube API mid-run), do NOT
 re-run Step 1 — it resets `used_footage_ids.json` (so later beats could reuse candidates earlier
 beats already used), also wipes `archival_work/` and `archival_picks.json`, and re-spends the
-channel-resolution quota. Instead, continue Step 2 at the first modern beat in `footage_beats.json`
-whose `footage_output/beat_<beat_index>.mp4` doesn't exist yet, and Step 2A at the first archival
-beat in `archival_beats.json` whose `footage_output/beat_<n>.mp4` doesn't exist yet (mixed beats resume from Step 2M, the rest from 2A). Before resuming,
+channel-resolution quota. Instead, run `.venv/bin/python -m footage.batch status` (it lists, per kind, the
+beats with no `footage_output/beat_<n>.mp4` yet) and continue Steps 2, 2A and 2M: every batch `prep-*`
+command without beat numbers takes exactly those beats (mixed beats resume from Step 2M, the rest from 2A). Before resuming,
 check that `used_footage_ids.json` matches the clips already in `footage_output/`: one entry per
 modern clip, one `["archive", ...]` entry per archival film beat, one to three per archival photo
 beat, one to three `["archive", ...]` entries per mixed beat won by stills (artwork or photos) and one `["<source>", "<id>"]` entry per mixed beat won by stock; if not, tell the user rather than guessing.
@@ -584,64 +584,70 @@ beat, one to three `["archive", ...]` entries per mixed beat won by stills (artw
    silently drop to Pexels-only; tell the user so they can trim beats, wait for tomorrow's
    quota reset, or request a quota increase.
 
-2. Read `footage_beats.json`. For EACH `(beat_index, query, subject)` tuple, in order
-   (substitute the real values as trailing `sys.argv` arguments — `query`/`subject` need
-   double-quoting since they contain spaces and apostrophes, e.g. the trailing arguments for
-   beat 3 look like `" 3 "tokyo subway platform" "Tokyo's subway system"`. Double quotes, not
-   single. If a value contains `"`, `$`, or a backtick, escape it with a backslash):
+**Speed: run Stage 2 in batches (read before Step 2).** One 192-beat video once took 13+ hours because every
+beat went strictly one at a time: search, ONE judge, save its answer by hand, download, next beat. Steps 2, 2A and
+2M now use one tested tool, `.venv/bin/python -m footage.batch <command>` (`footage/batch.py`), in three phases
+per batch: **prep** many beats at once (a small thread pool, 4 beats at a time by default: `--workers N`), run
+the **judges** in parallel (up to 8 subagents at a time), then **apply** the verdicts in beat order. The rules
+are the same as the one-beat flow; only the waiting is shared:
 
-   a. Prepare the combined scoring input (real Pexels + YouTube + Envato search, excluding both
-      the fixed channels and any candidate already used earlier in this run), and record the real
-      quota this beat's YouTube search just spent. Every beat now searches all three sources in
-      parallel for up to 10 total candidates (`PEXELS_SPLIT=4` + `YOUTUBE_SPLIT=3` +
-      `ENVATO_SPLIT=3`) — Envato only ever searches its Stock Footage category, never Motion
-      Graphics (Global Constraint), and a query that returns zero Envato results (including a
-      login/session hiccup or a Playwright error on Envato's side) does not stop the beat; it just
-      means fewer than 10 candidates that round, same as any other source coming up short. An
-      Envato failure (as opposed to a genuinely empty search) prints a line starting
-      `WARNING: Envato contributed 0 candidates ...` naming the real cause — note any you see
-      for the Step 3 report:
+- **Which beats.** A `prep-*` command without beat numbers takes every beat of its kind that has no
+  `footage_output/beat_<n>.mp4` yet (`status` lists them), so it also resumes a stopped run. An `apply-*` command
+  without beat numbers takes the beats that were prepped and have no clip yet. A long list can be given in chunks
+  (for example 12 beats per command) to stay inside the 10-minute Bash timeout; or run the command with
+  `run_in_background: true` and wait for it to finish.
+- **Judges.** Every `prep-*` command prints one line per beat that needs a judge:
+  `JUDGE beat=<n> model=<default|opus> prompt=<abs path> response=<abs path>`. For each, spawn ONE subagent
+  (Agent tool; `model: "opus"` when the line says `model=opus`; it needs Read access for the thumbnails). Its
+  whole instructions are: "Read the file <prompt path> with your Read tool. Its content is your full
+  instructions: follow them exactly and reply with only the JSON it asks for." (Reading the file is the same
+  instructions as pasting it, without re-typing it.) Run up to 8 judges at once, in the background when you
+  like. Then save each judge's answer unedited, either from its output file
+  (`.venv/bin/python -m footage.batch extract <kind> <n>=<output file path> [<n>=<path> ...]`, with kind
+  `modern`, `film`, `photo` or `mixed`; it takes the judge's LAST JSON answer) or from its reply text
+  (`.venv/bin/python -m footage.batch save-response <kind> <n> <<'EOF'` ... `EOF`). Never write or change a
+  verdict yourself; a judge answer with no JSON verdict is an error to report, not something to fill in.
+- **Apply in order.** `apply-*` handles the beats in beat order, exactly like the one-beat flow (same
+  download, render, landscape checks, YouTube look and `used_footage_ids.json` bookkeeping). It prints one line
+  per beat (`DONE`, `SKIPPED` when the clip already exists, `NEEDS_PHOTOS`, `NO_ACCEPTABLE`, `DUPLICATE`,
+  `ERROR`, `NOT_STARTED`) and a summary, and exits 0 (all fine), 2 (some beats flagged) or 1 (an error).
+- **Duplicates.** Beats in one batch are searched before any of them is applied, so two judges can pick the same
+  clip or photo. Apply refuses the second one (`DUPLICATE`, nothing downloaded, nothing marked used); never
+  swap in another candidate. Re-run the printed `prep-*` command for that beat (it now excludes the used clip
+  and deletes the old answer), judge it again and apply it. That is the only time a beat is judged twice: its
+  candidates changed, exactly as if it had been prepared after the earlier beat in the one-beat flow.
+- **One Envato browser at a time.** `prep-modern`, `prep-mixed`, `apply-modern` and `apply-mixed` all drive the
+  one Envato login profile: never run two of them at the same time (inside one command the tool already takes
+  turns). `prep-film` and `prep-photos` use no Envato and may run alongside one of them. Never run two `apply-*`
+  commands at once (they all write `used_footage_ids.json`).
+- **Archive downloads retry by themselves.** Commons, LoC, the Met and archive.org requests are retried up to 4
+  times with backoff on 429, 5xx, timeouts and broken downloads (honoring Retry-After), and the judges get small
+  thumbnails (Commons 960 px, LoC ~640 px), not full-size originals. A thumbnail that still fails is dropped
+  with a `WARNING` naming the status and rate-limit headers.
+
+2. Modern footage beats (`footage_beats.json`, `(beat_index, query, subject)` tuples).
+
+   a. Prepare the combined scoring input for many beats (real Pexels + YouTube + Envato search, excluding both the
+      fixed channels and any candidate already used), recording the real quota each beat's YouTube search spent:
 
       ```bash
-      .venv/bin/python -c "
-      import dataclasses, json, os, sys
-      from dotenv import load_dotenv
-      from footage.combined_build import prepare_combined_scoring
-      from footage.quota import PER_BEAT_UNITS, record_spend
-
-      beat_index, query, subject = sys.argv[1], sys.argv[2], sys.argv[3]
-      load_dotenv()
-      pexels_api_key = os.environ['PEXELS_API_KEY']
-      youtube_api_key = os.environ['YOUTUBE_API_KEY']
-      envato_profile_dir = os.environ.get('ENVATO_PROFILE_DIR', '.envato_automation_profile')
-      excluded_channel_ids = frozenset(json.load(open('excluded_channel_ids.json')))
-      used_ids = frozenset(tuple(pair) for pair in json.load(open('used_footage_ids.json')))
-
-      candidates, prompt = prepare_combined_scoring(
-          query=query, subject=subject,
-          pexels_api_key=pexels_api_key, youtube_api_key=youtube_api_key,
-          excluded_channel_ids=excluded_channel_ids,
-          thumbnails_dir=f'thumbnails/beat_{beat_index}',
-          envato_profile_dir=envato_profile_dir,
-          exclude_ids=used_ids,
-      )
-      record_spend(PER_BEAT_UNITS, 'youtube_quota_usage.json')
-
-      json.dump(
-          [{'source': c.source, 'display_id': c.display_id, 'thumbnail_path': c.thumbnail_path,
-            'payload': dataclasses.asdict(c.payload)} for c in candidates],
-          open(f'candidates_{beat_index}.json', 'w'),
-      )
-      open(f'scoring_prompt_{beat_index}.txt', 'w').write(prompt)
-      " <beat_index> "<query>" "<subject>"
+      .venv/bin/python -m footage.batch prep-modern [<beat_index> ...]
       ```
 
-      If this raises `ValueError: no candidates found...`, `PexelsError`, or `YouTubeError`,
-      STOP and report it — do not skip the beat or substitute a generic query without telling
-      the user. (Envato failures never reach here — `prepare_combined_scoring` treats Envato as a
-      purely additive source and contributes zero Envato candidates for the beat, with a printed
-      `WARNING`, instead of raising; see the note above.) A `YouTubeError` mentioning 403 / `quotaExceeded` means the
-      daily quota ran out despite the pre-flight estimate (estimate and live usage can drift): run
+      Run it with a long Bash timeout (`timeout: 600000`). For each beat it writes `candidates_<n>.json` and
+      `scoring_prompt_<n>.txt`. Every beat searches all three sources for up to 10 total candidates
+      (`PEXELS_SPLIT=4` + `YOUTUBE_SPLIT=3` + `ENVATO_SPLIT=3`). Envato only ever searches its Stock Footage
+      category, never Motion Graphics (Global Constraint), and a query that returns zero Envato results (including a
+      login/session hiccup or a Playwright error on Envato's side) does not stop the beat; it just means fewer than
+      10 candidates, same as any other source coming up short. An Envato failure (as opposed to a genuinely empty
+      search) prints a line `[beat <n>] WARNING: Envato contributed 0 candidates ...` naming the real cause: note
+      any you see for the Step 3 report. Fewer than 10 candidates (but at least one) is fine.
+
+      A beat that fails (`ERROR` line: `ValueError: no candidates found...`, `PexelsError`, `YouTubeError`) stops
+      the batch: no further beat is started (beats already running finish) and the command exits 1. STOP and
+      report it; do not skip the beat or substitute a generic query without telling the user. (Envato failures
+      never stop a beat: see above.) A `YouTubeError` mentioning 403 / `quotaExceeded` means the daily quota ran
+      out despite the pre-flight estimate (estimate and live usage can drift): run
 
       ```bash
       .venv/bin/python -c "
@@ -655,156 +661,87 @@ beat, one to three `["archive", ...]` entries per mixed beat won by stills (artw
       "
       ```
 
-      (same `.env` / `YOUTUBE_DAILY_QUOTA_UNITS` convention as Step 1 — marking today exhausted
-      against the wrong cap would silently defeat a real quota override) so tomorrow's
-      pre-flight check reflects reality, then STOP and report which beat to resume from once
-      quota resets. Fewer than 10 total candidates (but at least one, from any of the three
-      sources) is fine; continue normally.
+      (same `.env` / `YOUTUBE_DAILY_QUOTA_UNITS` convention as Step 1 — marking today exhausted against the wrong
+      cap would silently defeat a real quota override) so tomorrow's pre-flight check reflects reality, then STOP
+      and report that the run resumes (Step 2 `prep-modern` with no beat numbers) once quota resets.
 
-   b. Spawn ONE subagent (Agent tool) with `scoring_prompt_<beat_index>.txt`'s content as its
-      full instructions. The subagent must have Read tool access (to view the thumbnails) — a
-      normal Claude Code subagent, no special model requirement.
+   b. For each `JUDGE` line, spawn the judge subagent as described above (no special model: a normal Claude Code
+      subagent with Read access to view the thumbnails), up to 8 at a time.
 
-   c. Save the subagent's raw text response to `scoring_response_<beat_index>.txt`.
+   c. Save each judge's raw answer to `scoring_response_<n>.txt` with `extract modern ...` or
+      `save-response modern <n>`.
 
-   d. Take the subagent's response and validate + download the (duration-clamped, if YouTube or
-      Envato) winning clip:
+   d. Validate the verdicts and download the (duration-clamped, if YouTube or Envato) winning clips, in order:
 
       ```bash
-      .venv/bin/python -c "
-      import json, os, sys
-      from dotenv import load_dotenv
-      from footage.combined_build import CombinedCandidate, resolve_combined_winner
-      from footage.envato import EnvatoCandidate
-      from footage.pexels import PexelsCandidate, VideoFile
-      from footage.youtube import YouTubeCandidate
-      from footage.scoring_output import NoAcceptableCandidateError, parse_scoring_output
-
-      beat_index = sys.argv[1]
-      load_dotenv()
-      envato_profile_dir = os.environ.get('ENVATO_PROFILE_DIR', '.envato_automation_profile')
-      candidates_data = json.load(open(f'candidates_{beat_index}.json'))
-      candidates = []
-      for c in candidates_data:
-          if c['source'] == 'pexels':
-              p = c['payload']
-              payload = PexelsCandidate(
-                  id=p['id'], url=p['url'], thumbnail_url=p['thumbnail_url'], duration=p['duration'],
-                  width=p['width'], height=p['height'],
-                  video_files=[VideoFile(**vf) for vf in p['video_files']],
-              )
-          elif c['source'] == 'envato':
-              payload = EnvatoCandidate(**c['payload'])
-          else:
-              payload = YouTubeCandidate(**c['payload'])
-          candidates.append(CombinedCandidate(c['source'], c['display_id'], c['thumbnail_path'], payload))
-
-      raw_response = open(f'scoring_response_{beat_index}.txt').read()
-      target_duration = json.load(open('beat_durations.json'))[beat_index]
-
-      try:
-          winner_index = parse_scoring_output(raw_response, num_candidates=len(candidates))
-      except NoAcceptableCandidateError as e:
-          print(f'NO ACCEPTABLE FOOTAGE for beat {beat_index}: {e.reasoning or \"(no reason given)\"}')
-          sys.exit(2)
-
-      path = resolve_combined_winner(
-          candidates, winner_index, f'footage_output/beat_{beat_index}.mp4', target_duration,
-          envato_profile_dir=envato_profile_dir,
-      )
-
-      used_ids = json.load(open('used_footage_ids.json'))
-      winner = candidates[winner_index]
-      used_ids.append([winner.source, winner.display_id])
-      json.dump(used_ids, open('used_footage_ids.json', 'w'))
-      print(f'beat {beat_index}: downloaded {path} (source={winner.source})')
-      " <beat_index>
+      .venv/bin/python -m footage.batch apply-modern [<beat_index> ...]
       ```
 
-      If this exits with status 2 (`NO ACCEPTABLE FOOTAGE`), STOP and flag that specific beat
-      to the user (its index, query, subject, and the reasoning printed) — do not re-run the
-      scorer yourself or pick a candidate on your own judgment. If `parse_scoring_output` raises
-      a `ScoringOutputError` (malformed output, not a considered "none acceptable" verdict),
-      STOP and report the exact error. If this raises `YouTubeDownloadError`/`PortraitVideoError`
-      (a YouTube or Envato winner — Envato reuses the same landscape backstop probe),
-      `EnvatoDownloadError` (an Envato winner), or a Pexels-side download failure, STOP and report
-      it with the beat's index, query, subject, and the winning candidate's source/id — do NOT
-      silently substitute the next-ranked candidate. No clip file is left behind for that beat,
-      and its id is not added to `used_footage_ids.json`.
+      Run it with a long Bash timeout (`timeout: 600000`), or in the background for a long list.
+      `NO_ACCEPTABLE` (the judge answered `winner_index: null`) flags that beat: tell the user its index, query,
+      subject and the reasoning printed; do not re-run the scorer yourself or pick a candidate on your own
+      judgment. The other beats carry on. `DUPLICATE`: see "Duplicates" above. An `ERROR` stops the command at
+      that beat (later beats show `NOT_STARTED`; `--keep-going` continues past it when you know the other beats
+      are unaffected): a `ScoringOutputError` (malformed output, not a considered "none acceptable" verdict), a
+      missing response file, `YouTubeDownloadError`/`PortraitVideoError` (a YouTube or Envato winner — Envato
+      reuses the same landscape backstop probe), `EnvatoDownloadError` (an Envato winner) or a Pexels-side
+      download failure: STOP and report it with the beat's index, query, subject, and the winning candidate's
+      source/id — do NOT silently substitute the next-ranked candidate. No clip file is left behind for that beat,
+      and its id is not added to `used_footage_ids.json`. An Envato winner that downloads as a `.zip` is unzipped
+      (the largest video inside) before trimming; a zip with no video is an `EnvatoDownloadError`.
 
-2A. Read `archival_beats.json`. For EACH beat (a dict with `beat_index`, `start`, `end`, `era`, `subject`, `medium`, `query`,
-   `archival_query`, `archival_broad_query`) whose `medium` is `"photo"`, in order, run a-d (beats with another medium go to 2M). Substitute the real `beat_index` as the trailing
-   argument.
+2A. Archival beats whose `medium` is `"photo"` (1900 to 1959; beats with another medium go to 2M). Each is a dict
+   in `archival_beats.json` with `beat_index`, `start`, `end`, `era`, `subject`, `medium`, `query`,
+   `archival_query`, `archival_broad_query`.
 
-   a. Search film and write the judging prompt (prints `film candidates: yes` or `no`):
+   a. Search film and write the judging prompts:
 
       ```bash
-      .venv/bin/python -c "
-      import json, sys
-      from footage.archival_build import prepare_film
-      beat = next(b for b in json.load(open('archival_beats.json')) if b['beat_index'] == int(sys.argv[1]))
-      used = json.load(open('used_footage_ids.json'))
-      print('film candidates:', 'yes' if prepare_film(beat, used) else 'no')
-      " <beat_index>
+      .venv/bin/python -m footage.batch prep-film [<beat_index> ...]
       ```
 
-      Run this command with a long Bash timeout (`timeout: 600000`): it reads still frames from archive.org
-      (up to 5 candidates, 3 frames each, at most 30 s per frame) and prints one progress line per candidate.
+      Run it with a long Bash timeout (`timeout: 600000`), or in the background, or in chunks: each beat reads
+      still frames from archive.org (up to 5 candidates, 3 frames each, at most 30 s per frame) and prints one
+      progress line per candidate. A beat with film prints `film candidates: yes` and a `JUDGE` line; a beat
+      without prints `NEEDS_PHOTOS` and goes straight to c (the command prints the `prep-photos` line to run).
 
-      An `ArchiveError`, `ArchivalSearchError`, `ArchivalRenderError` (for example ffmpeg missing) or `ValueError` raised by `prepare_film` (or by `prepare_photos` in c)
-      STOPs the stage with the beat index. A transient 5xx, 429 or timeout may be retried once by re-running that
-      step; do not skip the beat.
+      An `ArchiveError`, `ArchivalSearchError`, `ArchivalRenderError` (for example ffmpeg missing) or `ValueError`
+      for a beat (here or in c) STOPs the stage with the beat index. Network errors were already retried with
+      backoff; a transient failure may still be retried once by re-running that one beat's command; do not skip
+      the beat.
 
-   b. Only when it printed `film candidates: yes`: spawn ONE subagent (Agent tool, `model: "opus"`, because the
-      archival judging reads thumbnails and applies the era and graphic rules) with
-      `archival_work/film_prompt_<beat_index>.txt`'s content as its full instructions (it needs Read access for the
-      thumbnail frames of film, or the thumbnails of photos). Save its raw response to `archival_work/film_response_<beat_index>.txt`, then:
+   b. Judge each `JUDGE` line (`model: "opus"`, because the archival judging reads thumbnails and applies the era
+      and graphic rules), save the answers to `archival_work/film_response_<n>.txt` (`extract film ...` or
+      `save-response film <n>`), then:
 
       ```bash
-      .venv/bin/python -c "
-      import json, sys
-      from footage.archival_build import finish_film
-      beat = next(b for b in json.load(open('archival_beats.json')) if b['beat_index'] == int(sys.argv[1]))
-      raw = open(f'archival_work/film_response_{sys.argv[1]}.txt').read()
-      print('film used' if finish_film(beat, raw) else 'no acceptable film')
-      " <beat_index>
+      .venv/bin/python -m footage.batch apply-film [<beat_index> ...]
       ```
 
-      If it prints `film used`, this beat is done; go to the next beat. If a `ScoringOutputError`, `ArchivalRenderError`
-      or `ArchiveError` is raised, STOP and report it with the beat index. Do not pick on your own.
+      `DONE` (film used) finishes that beat. `NEEDS_PHOTOS` (no acceptable film) goes to c; the command prints the
+      `prep-photos` line for them. A `ScoringOutputError`, `ArchivalRenderError` or `ArchiveError` (`ERROR` line)
+      STOPs the stage with the beat index. Do not pick on your own.
 
-   c. If there was no film or none was acceptable, search photos and write the judging prompt (an
+   c. Search photos and write the judging prompts for the beats with no film or no acceptable film (an
       `ArchivalSearchError` here means nothing was found even after broadening: STOP and report it):
 
       ```bash
-      .venv/bin/python -c "
-      import json, sys
-      from footage.archival_build import prepare_photos
-      beat = next(b for b in json.load(open('archival_beats.json')) if b['beat_index'] == int(sys.argv[1]))
-      prepare_photos(beat, json.load(open('used_footage_ids.json')))
-      print('photo candidates ready')
-      " <beat_index>
+      .venv/bin/python -m footage.batch prep-photos <beat_index> [<beat_index> ...]
       ```
 
-   d. Spawn ONE subagent (Agent tool, `model: "opus"`, for the same reason as in b) with `archival_work/photo_prompt_<beat_index>.txt`'s content as
-      its full instructions. Save its raw response to `archival_work/photo_response_<beat_index>.txt`, then:
+   d. Judge each `JUDGE` line (`model: "opus"`, for the same reason as in b), save the answers to
+      `archival_work/photo_response_<n>.txt` (`extract photo ...` or `save-response photo <n>`), then:
 
       ```bash
-      .venv/bin/python -c "
-      import json, sys
-      from footage.archival_build import finish_photos
-      beat = next(b for b in json.load(open('archival_beats.json')) if b['beat_index'] == int(sys.argv[1]))
-      finish_photos(beat, open(f'archival_work/photo_response_{sys.argv[1]}.txt').read())
-      print('photos used for beat', sys.argv[1])
-      " <beat_index>
+      .venv/bin/python -m footage.batch apply-photos [<beat_index> ...]
       ```
 
-      A `ScoringOutputError` (for example the judge returned no photo at all: photos must always be picked), an
-      `ArchiveError` or a render error STOPs the stage with the beat index. When the `ScoringOutputError` is because
-      the judge returned no picks (every candidate broke the real-imagery, not-graphic or no-text-screen rules), tell
-      Josh the beat index and the judge's reasoning. Josh can send photo files or links; save them locally (real
-      archival photos only, tell me the source/license) and run 2A-e for that beat; a show-as-is link in the script
-      also works but needs a Stage 1 + Stage 2 redo. Never pick a photo yourself.
+      `NO_ACCEPTABLE` means the judge returned no picks (every candidate broke the real-imagery, not-graphic or
+      no-text-screen rules; photos must always be picked): tell Josh the beat index and the judge's reasoning.
+      Josh can send photo files or links; save them locally (real archival photos only, tell me the
+      source/license) and run 2A-e for that beat; a show-as-is link in the script also works but needs a Stage 1 +
+      Stage 2 redo. Never pick a photo yourself. Any other `ScoringOutputError`, an `ArchiveError` or a render
+      error (`ERROR` line) STOPs the stage with the beat index.
 
    e. Supplying photos yourself (to replace a pick, or when the judge returned no picks). Save the real archival
       photos locally, then render that one beat. The source note is required (where the photos came from and their
@@ -822,59 +759,39 @@ beat, one to three `["archive", ...]` entries per mixed beat won by stills (artw
 
       A missing file or a blank source note raises `ValueError`: STOP and report it. Re-run Stage 4 afterwards.
 
-2M. Mixed beats (`medium` is `"artwork_or_stock"` or `"photo_or_artwork"`). For EACH such beat in `archival_beats.json`, in
-   order, run m-a to m-c instead of 2A a-d (there is no film search for them). Substitute the real `beat_index` as the trailing argument.
+2M. Mixed beats (`medium` is `"artwork_or_stock"` or `"photo_or_artwork"`; no film search for them).
 
-   m-a. Search artwork, photos and (only for `"artwork_or_stock"`) stock, and write the judging prompt:
-
-      ```bash
-      .venv/bin/python -c "
-      import json, os, sys
-      from dotenv import load_dotenv
-      from footage.mixed_build import prepare_mixed
-      from footage.quota import PER_BEAT_UNITS, record_spend
-
-      load_dotenv()
-      pexels_key = os.environ['PEXELS_API_KEY']
-      youtube_key = os.environ['YOUTUBE_API_KEY']
-      envato_profile_dir = os.environ.get('ENVATO_PROFILE_DIR', '.envato_automation_profile')
-      excluded = json.load(open('excluded_channel_ids.json'))
-      beat = next(b for b in json.load(open('archival_beats.json')) if b['beat_index'] == int(sys.argv[1]))
-      used = json.load(open('used_footage_ids.json'))
-      counts = prepare_mixed(beat, used, pexels_key, youtube_key, frozenset(excluded), envato_profile_dir)
-      print('candidates:', counts)
-      if beat['medium'] == 'artwork_or_stock':
-          record_spend(PER_BEAT_UNITS, 'youtube_quota_usage.json')
-      " <beat_index>
-      ```
-
-      Run this command with a long Bash timeout (`timeout: 600000`): it downloads candidate thumbnails. Only `"artwork_or_stock"` beats run the
-      stock search, so only they record YouTube quota. An `ArchivalSearchError`, `ArchiveError`, `YouTubeError`, `PexelsError` or `ValueError`
-      STOPs the stage with the beat index; a YouTube 403/`quotaExceeded` follows the quota handling in Step 2a. A Bash timeout counts as a STOP too: re-run
-      this step once (the Met client now bounds its own time); if it times out again, report it. A `shot_list.json` built before this branch (pre-1839
-      beats with blank archival queries) must be regenerated with Stage 1 Step 6b before running this step.
-
-   m-b. Spawn ONE subagent (Agent tool, `model: "opus"`) with `archival_work/mixed_prompt_<beat_index>.txt`'s content as its full instructions
-      (it needs Read access for the thumbnails). Save its raw response to `archival_work/mixed_response_<beat_index>.txt`.
-
-   m-c. Apply the verdict (prints `stills`, `stock` or `none`):
+   m-a. Search artwork, photos and (only for `"artwork_or_stock"`) stock, and write the judging prompts:
 
       ```bash
-      .venv/bin/python -c "
-      import json, os, sys
-      from dotenv import load_dotenv
-      from footage.mixed_build import finish_mixed
-      load_dotenv()
-      envato_profile_dir = os.environ.get('ENVATO_PROFILE_DIR', '.envato_automation_profile')
-      beat = next(b for b in json.load(open('archival_beats.json')) if b['beat_index'] == int(sys.argv[1]))
-      raw = open(f'archival_work/mixed_response_{sys.argv[1]}.txt').read()
-      print(finish_mixed(beat, raw, envato_profile_dir))
-      " <beat_index>
+      .venv/bin/python -m footage.batch prep-mixed [<beat_index> ...]
       ```
 
-      On `none`: STOP, tell Josh the beat index and the judge's reasoning, and ask for an image he supplies (run 2A-e `render_manual_photos`;
-      a real historical artwork or photo only, with its source/license). Never pick one yourself. A `ScoringOutputError`, `ArchivalRenderError`,
-      `ArchiveError`, `YouTubeDownloadError`, `EnvatoDownloadError`, `PortraitVideoError` or `DownloadError` STOPs the stage with the beat index.
+      Run it with a long Bash timeout (`timeout: 600000`), or in the background, or in chunks: it downloads
+      candidate thumbnails. Only `"artwork_or_stock"` beats run the stock search, so only they record YouTube
+      quota (the command records it). An `ArchivalSearchError`, `ArchiveError`, `YouTubeError`, `PexelsError` or
+      `ValueError` (`ERROR` line) STOPs the stage with the beat index; a YouTube 403/`quotaExceeded` follows the
+      quota handling in Step 2a. A Bash timeout counts as a STOP too: re-run the unfinished beats once (the Met
+      client bounds its own time); if it times out again, report it. A `shot_list.json` built before this branch
+      (pre-1839 beats with blank archival queries) must be regenerated with Stage 1 Step 6b before running this step.
+
+   m-b. Judge each `JUDGE` line (`model: "opus"`; it needs Read access for the thumbnails) and save the answers to
+      `archival_work/mixed_response_<n>.txt` (`extract mixed ...` or `save-response mixed <n>`).
+
+   m-c. Apply the verdicts (each `DONE` line ends in `stills` or `stock`):
+
+      ```bash
+      .venv/bin/python -m footage.batch apply-mixed [<beat_index> ...]
+      ```
+
+      On `NO_ACCEPTABLE` (the judge picked nothing): tell Josh the beat index and the judge's reasoning, and ask
+      for an image he supplies (run 2A-e `render_manual_photos`; a real historical artwork or photo only, with its
+      source/license). Never pick one yourself. A `ScoringOutputError`, `ArchivalRenderError`, `ArchiveError`,
+      `YouTubeDownloadError`, `EnvatoDownloadError`, `PortraitVideoError` or `DownloadError` (`ERROR` line) STOPs
+      the stage with the beat index.
+
+   Flagged beats (`NO_ACCEPTABLE`) in 2, 2A and 2M do not stop the other beats of the batch; once the batch is
+   applied, STOP and tell Josh about every flagged beat before going on.
 
 3. Report to the user: how many footage beats were sourced (and how many, if any, were flagged
    as having no acceptable footage), a source breakdown (how many clips came from Pexels vs.

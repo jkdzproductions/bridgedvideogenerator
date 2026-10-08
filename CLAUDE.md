@@ -311,6 +311,8 @@ Python inside the quotes. From Step 1a on, every Stage 1 command reads `script_m
    validate_shot_list(shot_list)
 
    json.dump(dataclasses.asdict(shot_list), open('shot_list.json', 'w'), indent=2)
+   # Step 6b plans from this unsplit copy, so Step 6b can be re-run safely after it has split cuts.
+   json.dump(dataclasses.asdict(shot_list), open('shot_list_director.json', 'w'), indent=2)
    print(f'shot_list.json written: {len(shot_list.beats)} beats, {total_duration:.1f}s')
    " script_marked.txt
    ```
@@ -325,7 +327,23 @@ Python inside the quotes. From Step 1a on, every Stage 1 command reads `script_m
 6b. Per-cut footage planning. The director wrote ONE footage idea per plain segment, but a segment
    is cut into shots of at most 6 seconds that would all inherit it. This step gives every
    footage cut its own search, based on the words spoken during that cut. Run it after Step 6
-   has written `shot_list.json`:
+   has written `shot_list.json` and `shot_list_director.json` (the director's unsplit copy; both
+   commands below read that copy, never `shot_list.json`, so re-running Step 6b is safe).
+
+   **Split cuts.** A cut whose words name several different things a camera could show (a list
+   of nouns, places or people; "from A to B"; "X versus Y"; a run of distinct events) is split
+   into 2 or 3 pieces (at most 4), each showing its own thing as its words are spoken. Example: a
+   real 5.3 s cut, "Oil has tank farms, grain has silos, water has towers." (30.65 to 35.98 s),
+   used to get one oil clip; it is now three pieces (oil tank farm 30.65-32.54, grain silos
+   32.54-34.12, water tower 34.12-35.98). Abstract phrasing and one continuous subject are never
+   split. Every piece boundary is the start time of a spoken word (the prompt lists each cut's
+   word start times), the pieces tile the cut exactly, and every piece lasts at least 1.3 s; the
+   code rejects anything else. Each piece gets its own `query`, `subject`, `era` and (before 1960)
+   archival queries, under the same rules as an unsplit cut. Step 6b-iii then replaces the cut's
+   single footage beat by one footage beat per piece, BEFORE Stage 2, so beat numbers are simply
+   sequential from then on (later beats move up) and no clip ever needs renumbering. Only footage
+   cuts are planned: graphic, page-highlight, image and talking-head beats are never split. A cut
+   is still at most 6 s, so no piece is longer than that.
 
    i. Build the planner prompt:
 
@@ -335,7 +353,7 @@ Python inside the quotes. From Step 1a on, every Stage 1 command reads `script_m
       from shot_list.align import WordTiming
       from shot_list.cut_planner import build_cut_planner_prompt, footage_cuts, load_shot_list
 
-      shot_list = load_shot_list('shot_list.json')
+      shot_list = load_shot_list('shot_list_director.json')
       word_timings = [WordTiming(**t) for t in json.load(open('word_timings.json'))['words']]
       cuts = footage_cuts(shot_list, word_timings)
       open('cut_planner_prompt.txt', 'w').write(build_cut_planner_prompt(cuts))
@@ -355,29 +373,43 @@ Python inside the quotes. From Step 1a on, every Stage 1 command reads `script_m
       .venv/bin/python -c "
       import dataclasses, json
       from shot_list.align import WordTiming
-      from shot_list.cut_planner import apply_cut_plans, footage_cuts, load_shot_list, parse_cut_planner_output
+      from shot_list.cut_planner import (
+          apply_cut_plans, footage_cuts, format_cut_plan_report, load_shot_list, parse_cut_planner_output)
 
-      shot_list = load_shot_list('shot_list.json')
+      shot_list = load_shot_list('shot_list_director.json')
       word_timings = [WordTiming(**t) for t in json.load(open('word_timings.json'))['words']]
       cuts = footage_cuts(shot_list, word_timings)
       plans = parse_cut_planner_output(open('cut_planner_response.json').read(), cuts)
       updated = apply_cut_plans(shot_list, cuts, plans)
       json.dump(dataclasses.asdict(updated), open('shot_list.json', 'w'), indent=2)
-      for cut, plan in zip(cuts, plans):
-          era = plan['era'] if plan['era'] is not None else 'modern'
-          print(f'{cut.start:.1f}-{cut.end:.1f}s \"{cut.words}\" -> {plan[\"query\"]!r} | era: {era}'
-                + (f' | archival: {plan[\"archival_query\"]!r}' if plan['archival_query'] else ''))
+      report = format_cut_plan_report(cuts, plans)
+      open('cut_plan_report.txt', 'w').write(report + '\n')
+      print(report)
+      print(f'shot_list.json written: {len(updated.beats)} beats')
       "
       ```
 
+      It prints one line per cut (`start-end "words" -> 'query' | era: ...`); a split cut prints
+      `split into N pieces:` followed by one indented line per piece with its own times, words,
+      query and era; the last line counts the cuts, the split cuts and the resulting footage
+      beats. The same text is saved to `cut_plan_report.txt`.
+
       If this raises `CutPlannerOutputError`, STOP and report the exact message — do not
       hand-patch the response or quietly re-run the subagent. `shot_list.json` is unchanged when
-      it raises. Show the printed cut-by-cut plan in the Step 7 report.
+      it raises. The split checks name the cut and piece: a piece that does not start where the
+      previous one ends or does not cover the whole cut (`pieces must tile the cut`), a boundary
+      that is `not the start of a word in this cut` (the message lists the cut's word starts), a
+      piece shorter than 1.3 s (`every piece must last at least 1.3 s`), more than 4 pieces, a
+      single piece, or an entry with both `pieces` and a `query`. Boundaries within 5 ms of a word
+      start (or of the cut's start/end) are accepted and snapped to the exact time. Show the
+      printed cut-by-cut plan, pieces included, in the Step 7 report.
 
-   The planner also tags every cut with an `era` (the year the words are about, or `modern`); a cut about a year before 1960 gets `archival_query` and `archival_broad_query` and is sourced from archives in Stage 2 instead of stock sites (except before 1839, where the judge may also pick stock). Cuts about a year before 1900 are **mixed** beats (they also get archival queries): before 1839 the judge chooses between real historical artwork (Met open access, Library of Congress prints) and the ordinary stock footage (stock only when nothing in it contradicts the period); from 1839 to 1899 it chooses among photographs and artwork (no stock); cuts from 1900 to 1959 keep the film-then-photos flow. A hand-colored lithograph of a battle counts as artwork. In Step 7, tell Josh how many cuts are archival.
+   The planner also tags every cut (and every piece of a split cut, on its own) with an `era` (the year the words are about, or `modern`); a cut about a year before 1960 gets `archival_query` and `archival_broad_query` and is sourced from archives in Stage 2 instead of stock sites (except before 1839, where the judge may also pick stock). Cuts about a year before 1900 are **mixed** beats (they also get archival queries): before 1839 the judge chooses between real historical artwork (Met open access, Library of Congress prints) and the ordinary stock footage (stock only when nothing in it contradicts the period); from 1839 to 1899 it chooses among photographs and artwork (no stock); cuts from 1900 to 1959 keep the film-then-photos flow. A hand-colored lithograph of a battle counts as artwork. In Step 7, tell Josh how many cuts are archival.
 
 7. Report to the user: total beats, how many are footage vs. graphic, how many are page highlights, how many are show-as-is images, how many are talking-head
-   (black screen) beats, the per-cut footage plan printed by Step 6b, and the path to
+   (black screen) beats, the per-cut footage plan printed by Step 6b (all of
+   `cut_plan_report.txt`, including every split cut's pieces with their times, words and queries,
+   and how many cuts were split into how many pieces), and the path to
    `shot_list.json`, followed by the linked-graph section printed by:
 
    ```bash

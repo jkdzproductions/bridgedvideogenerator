@@ -51,8 +51,10 @@ def test_footage_cuts_skips_graphic_beats_and_records_beat_index():
     cuts = footage_cuts(_shot_list(), timings)
 
     assert cuts == [
-        FootageCut(beat_index=1, start=4.0, end=8.0, words="same tropical", director_subject="old subject"),
-        FootageCut(beat_index=2, start=8.0, end=12.0, words="climate", director_subject="old subject"),
+        FootageCut(beat_index=1, start=4.0, end=8.0, words="same tropical", director_subject="old subject",
+                   word_times=(("same", 4.5), ("tropical", 5.0))),
+        FootageCut(beat_index=2, start=8.0, end=12.0, words="climate", director_subject="old subject",
+                   word_times=(("climate", 9.0),)),
     ]
 
 

@@ -11,6 +11,8 @@ director_input.json
 director_response.json
 cut_planner_prompt.txt
 cut_planner_response.json
+cut_plan_report.txt
+shot_list_director.json
 shot_list.json
 script_marked.txt
 graph_links.json

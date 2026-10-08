@@ -11,7 +11,9 @@ from shot_list.models import ARCHIVAL_CUTOFF_YEAR
 
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 _PHOTO_MIMES = ("image/jpeg", "image/png")
-_MAX_WIDTH = 1920
+_MAX_WIDTH = 1920  # the rendered picture
+_THUMB_WIDTH = 960  # what the judge looks at (a standard Wikimedia thumbnail step, served from cache)
+_THUMB_WIDTH_RE = re.compile(rf"/{_THUMB_WIDTH}px-")
 
 
 def _meta(extmetadata: dict, key: str) -> str:
@@ -75,16 +77,20 @@ def parse_commons_response(payload: dict, year_range: Optional[tuple] = None) ->
             continue
         if year_range and not (year_range[0] <= year <= year_range[1]):
             continue
-        # A thumbnail is only a real downscale when the original is wider than the target.
-        use_thumb = width > _MAX_WIDTH and info.get("thumburl")
-        media_url = info["thumburl"] if use_thumb else info["url"]
+        # The judge looks at the API's small thumburl (iiurlwidth=_THUMB_WIDTH), never the full-size original:
+        # originals fetched as thumbnails drew 27 HTTP 429s in one live run (2026-10-07/08). The picture that is
+        # rendered is the same thumbnail at _MAX_WIDTH when the original is wider than that, else the original.
+        thumb_url = info.get("thumburl") or ""
+        media_url, media_w, media_h = info["url"], width, height
+        if width > _MAX_WIDTH and _THUMB_WIDTH_RE.search(thumb_url):
+            media_url = _THUMB_WIDTH_RE.sub(f"/{_MAX_WIDTH}px-", thumb_url, count=1)
+            media_w, media_h = _MAX_WIDTH, round(height * _MAX_WIDTH / width)
         candidates.append(ArchiveCandidate(
             source="commons", item_id=str(page["pageid"]), kind="photo",
             title=strip_html(_meta(meta, "ObjectName")) or page.get("title", ""), year=year,
             creator=strip_html(_meta(meta, "Artist")), rights=_meta(meta, "LicenseShortName") or "Public domain",
-            page_url=info.get("descriptionurl", ""), media_url=media_url, thumbnail_url=media_url,
-            width=int(info.get("thumbwidth", width)) if use_thumb else width,
-            height=int(info.get("thumbheight", height)) if use_thumb else height,
+            page_url=info.get("descriptionurl", ""), media_url=media_url, thumbnail_url=thumb_url or media_url,
+            width=media_w, height=media_h,
         ))
     return candidates
 
@@ -93,6 +99,6 @@ def search_commons_photos(query: str, year_range: Optional[tuple] = None, limit:
     payload = get_json(COMMONS_API, {
         "action": "query", "generator": "search", "gsrnamespace": 6,
         "gsrsearch": f"{query} filetype:bitmap", "gsrlimit": limit,
-        "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata", "iiurlwidth": _MAX_WIDTH, "format": "json",
+        "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata", "iiurlwidth": _THUMB_WIDTH, "format": "json",
     })
     return parse_commons_response(payload, year_range)

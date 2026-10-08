@@ -75,7 +75,10 @@ def parse_loc_photos_response(payload: dict, year_range: Optional[tuple] = None)
         best = max(images, key=lambda im: max(im[1], im[2]))
         if max(best[1], best[2]) < MIN_PHOTO_LONG_SIDE:
             continue
-        medium = next((im for im in images if im[1] >= _THUMB_MIN_WIDTH), best)
+        # The judge gets LoC's smallest derivative that is still readable (the ~640 px "r" file), never the
+        # full-size one, whatever order the API lists them in: fewer bytes, fewer broken downloads.
+        readable = [im for im in images if im[1] >= _THUMB_MIN_WIDTH]
+        medium = min(readable, key=lambda im: max(im[1], im[2])) if readable else best
         year = year_from(r.get("date"))
         if year_range and year is not None and not (year_range[0] <= year <= year_range[1]):
             continue

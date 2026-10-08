@@ -27,8 +27,10 @@ def _page(index, *, width=3000, height=2000, mime="image/jpeg", license_="pd", s
     if copyrighted is None:
         del info["extmetadata"]["Copyrighted"]
     if with_thumb:
-        info.update({"thumburl": f"https://upload.wikimedia.org/thumb/{index}.jpg", "thumbwidth": 1920,
-                     "thumbheight": 1280})
+        # The real API shape for iiurlwidth=960 (checked live 2026-10-08).
+        info.update({"thumburl": f"https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/{index}.jpg/960px-{index}.jpg"
+                                 "?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                     "thumbwidth": 960, "thumbheight": round(960 * height / width)})
     return {"pageid": index, "index": index, "title": f"File:{index}.jpg", "imageinfo": [info]}
 
 
@@ -39,12 +41,37 @@ def _payload(*pages):
 def test_a_public_domain_photo_becomes_a_candidate_with_its_source_and_rights():
     [c] = parse_commons_response(_payload(_page(1)))
 
+    thumb = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/1.jpg/{}px-1.jpg" \
+            "?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail"
     assert c == ArchiveCandidate(
         source="commons", item_id="1", kind="photo", title="Photo 1", year=1864, creator="Matthew Brady",
         rights="Public domain", page_url="https://commons.wikimedia.org/wiki/File:1.jpg",
-        media_url="https://upload.wikimedia.org/thumb/1.jpg", thumbnail_url="https://upload.wikimedia.org/thumb/1.jpg",
+        media_url=thumb.format(1920), thumbnail_url=thumb.format(960),
         width=1920, height=1280)
     assert c.display_id == "commons:1"
+
+
+def test_the_judge_thumbnail_is_the_small_960px_rendition_never_the_original():
+    # Live finding 2026-10-07/08: the 429s were full-size originals fetched as "thumbnails".
+    for width, height in [(3000, 2000), (1500, 1000), (1000, 1400)]:
+        [c] = parse_commons_response(_payload(_page(1, width=width, height=height)))
+        assert "/960px-" in c.thumbnail_url and "utm_content=original" not in c.thumbnail_url
+
+
+def test_without_a_scaled_thumbnail_the_judge_thumbnail_falls_back_to_the_media_url():
+    [c] = parse_commons_response(_payload(_page(1, width=1500, height=1000, with_thumb=False)))
+
+    assert c.thumbnail_url == c.media_url == "https://upload.wikimedia.org/original/1.jpg"
+
+
+def test_a_wide_photo_whose_thumb_url_has_no_width_marker_uses_the_original_for_media():
+    page = _page(1, width=3000, height=2000)
+    page["imageinfo"][0]["thumburl"] = "https://thumb.wikimedia.org/odd/1.jpg"
+
+    [c] = parse_commons_response(_payload(page))
+
+    assert c.media_url == "https://upload.wikimedia.org/original/1.jpg" and (c.width, c.height) == (3000, 2000)
+    assert c.thumbnail_url == "https://thumb.wikimedia.org/odd/1.jpg"
 
 
 def test_results_keep_the_search_order_from_the_index_field():
@@ -221,6 +248,7 @@ def test_search_sends_a_bitmap_search_with_the_project_user_agent(monkeypatch):
     assert seen["url"] == "https://commons.wikimedia.org/w/api.php"
     assert seen["params"]["gsrsearch"] == "atlanta railroad 1860s filetype:bitmap"
     assert seen["params"]["gsrlimit"] == 7 and seen["params"]["gsrnamespace"] == 6
+    assert seen["params"]["iiurlwidth"] == 960  # the API's thumburl is the judge's small thumbnail
     assert seen["headers"]["User-Agent"] == USER_AGENT == "BridgedVideoGenerator/0.1"
 
 
@@ -230,6 +258,7 @@ def test_get_json_raises_archive_error_on_a_bad_status(monkeypatch):
         text = "slow down"
 
     monkeypatch.setattr(types_mod.requests, "get", lambda *a, **k: Resp())
+    monkeypatch.setattr(types_mod.time, "sleep", lambda s: None)  # a 429 is retried with backoff first
 
     with pytest.raises(ArchiveError, match="429"):
         get_json("https://example.org/api", {})
@@ -273,6 +302,7 @@ def test_network_failures_become_archive_errors_for_both_helpers(monkeypatch, tm
     def boom(*a, **k): raise types_mod.requests.Timeout("timed out")
 
     monkeypatch.setattr(types_mod.requests, "get", boom)
+    monkeypatch.setattr(types_mod.time, "sleep", lambda s: None)  # timeouts are retried with backoff first
 
     with pytest.raises(ArchiveError, match="timed out"):
         get_json("https://example.org/api", {})
@@ -323,7 +353,7 @@ def test_helpers():
     assert c.safe_id == "loc_2018_66_985"
 
 
-# --- get_json: one retry on a transient network error -------------------------------------------
+# --- get_json: bounded retry on transient errors (full coverage in test_archive_http_retry.py) ----
 import requests as _requests
 import footage.archive_types as _types
 
@@ -346,26 +376,30 @@ def _script(monkeypatch, outcomes):
     return calls, sleeps
 
 
-def test_get_json_retries_once_after_a_timeout(monkeypatch):
+def test_get_json_retries_after_a_timeout(monkeypatch):
     calls, sleeps = _script(monkeypatch, [_requests.Timeout("slow"), _JsonResp()])
     assert _types.get_json("http://x", {}) == {"ok": 1}
-    assert len(calls) == 2 and sleeps == [1.0]
+    assert len(calls) == 2 and sleeps == [2.0]
 
 
-def test_get_json_retries_once_after_a_connection_error(monkeypatch):
+def test_get_json_retries_after_a_connection_error(monkeypatch):
     calls, _ = _script(monkeypatch, [_requests.ConnectionError("reset"), _JsonResp()])
     assert _types.get_json("http://x", {}) == {"ok": 1}
 
 
-def test_get_json_gives_up_after_two_timeouts(monkeypatch):
-    calls, _ = _script(monkeypatch, [_requests.Timeout("a"), _requests.Timeout("b")])
+def test_get_json_gives_up_after_max_attempts_of_timeouts(monkeypatch):
+    calls, _ = _script(monkeypatch, [_requests.Timeout(str(i)) for i in range(_types.MAX_ATTEMPTS)])
     with pytest.raises(_types.ArchiveError):
         _types.get_json("http://x", {})
+    assert len(calls) == _types.MAX_ATTEMPTS
+
+
+def test_get_json_retries_a_429_but_not_a_404(monkeypatch):
+    calls, sleeps = _script(monkeypatch, [_JsonResp(429), _JsonResp()])
+    assert _types.get_json("http://x", {}) == {"ok": 1}
     assert len(calls) == 2
 
-
-def test_get_json_does_not_retry_an_http_error(monkeypatch):
-    calls, sleeps = _script(monkeypatch, [_JsonResp(429), _JsonResp()])
+    calls, sleeps = _script(monkeypatch, [_JsonResp(404), _JsonResp()])
     with pytest.raises(_types.ArchiveError):
         _types.get_json("http://x", {})
     assert len(calls) == 1 and sleeps == []

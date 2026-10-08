@@ -311,6 +311,8 @@ Python inside the quotes. From Step 1a on, every Stage 1 command reads `script_m
    validate_shot_list(shot_list)
 
    json.dump(dataclasses.asdict(shot_list), open('shot_list.json', 'w'), indent=2)
+   # Step 6b plans from this unsplit copy, so Step 6b can be re-run safely after it has split cuts.
+   json.dump(dataclasses.asdict(shot_list), open('shot_list_director.json', 'w'), indent=2)
    print(f'shot_list.json written: {len(shot_list.beats)} beats, {total_duration:.1f}s')
    " script_marked.txt
    ```
@@ -325,7 +327,25 @@ Python inside the quotes. From Step 1a on, every Stage 1 command reads `script_m
 6b. Per-cut footage planning. The director wrote ONE footage idea per plain segment, but a segment
    is cut into shots of at most 6 seconds that would all inherit it. This step gives every
    footage cut its own search, based on the words spoken during that cut. Run it after Step 6
-   has written `shot_list.json`:
+   has written `shot_list.json` and `shot_list_director.json` (the director's unsplit copy; both
+   commands below read that copy, never `shot_list.json`, so re-running Step 6b is safe). If
+   `shot_list_director.json` is missing (a shot list built before split cuts existed), re-run
+   Step 6; never copy a `shot_list.json` that Step 6b has already split.
+
+   **Split cuts.** A cut whose words name several different things a camera could show (a list
+   of nouns, places or people; "from A to B"; "X versus Y"; a run of distinct events) is split
+   into 2 or 3 pieces (at most 4), each showing its own thing as its words are spoken. Example: a
+   real 5.3 s cut, "Oil has tank farms, grain has silos, water has towers." (30.65 to 35.98 s),
+   used to get one oil clip; it is now three pieces (oil tank farm 30.65-32.54, grain silos
+   32.54-34.12, water tower 34.12-35.98). Abstract phrasing and one continuous subject are never
+   split. Every piece boundary is the start time of a spoken word (the prompt lists each cut's
+   word start times), the pieces tile the cut exactly, and every piece lasts at least 1.3 s; the
+   code rejects anything else. Each piece gets its own `query`, `subject`, `era` and (before 1960)
+   archival queries, under the same rules as an unsplit cut. Step 6b-iii then replaces the cut's
+   single footage beat by one footage beat per piece, BEFORE Stage 2, so beat numbers are simply
+   sequential from then on (later beats move up) and no clip ever needs renumbering. Only footage
+   cuts are planned: graphic, page-highlight, image and talking-head beats are never split. A cut
+   is still at most 6 s, so no piece is longer than that.
 
    i. Build the planner prompt:
 
@@ -335,7 +355,7 @@ Python inside the quotes. From Step 1a on, every Stage 1 command reads `script_m
       from shot_list.align import WordTiming
       from shot_list.cut_planner import build_cut_planner_prompt, footage_cuts, load_shot_list
 
-      shot_list = load_shot_list('shot_list.json')
+      shot_list = load_shot_list('shot_list_director.json')
       word_timings = [WordTiming(**t) for t in json.load(open('word_timings.json'))['words']]
       cuts = footage_cuts(shot_list, word_timings)
       open('cut_planner_prompt.txt', 'w').write(build_cut_planner_prompt(cuts))
@@ -355,29 +375,43 @@ Python inside the quotes. From Step 1a on, every Stage 1 command reads `script_m
       .venv/bin/python -c "
       import dataclasses, json
       from shot_list.align import WordTiming
-      from shot_list.cut_planner import apply_cut_plans, footage_cuts, load_shot_list, parse_cut_planner_output
+      from shot_list.cut_planner import (
+          apply_cut_plans, footage_cuts, format_cut_plan_report, load_shot_list, parse_cut_planner_output)
 
-      shot_list = load_shot_list('shot_list.json')
+      shot_list = load_shot_list('shot_list_director.json')
       word_timings = [WordTiming(**t) for t in json.load(open('word_timings.json'))['words']]
       cuts = footage_cuts(shot_list, word_timings)
       plans = parse_cut_planner_output(open('cut_planner_response.json').read(), cuts)
       updated = apply_cut_plans(shot_list, cuts, plans)
       json.dump(dataclasses.asdict(updated), open('shot_list.json', 'w'), indent=2)
-      for cut, plan in zip(cuts, plans):
-          era = plan['era'] if plan['era'] is not None else 'modern'
-          print(f'{cut.start:.1f}-{cut.end:.1f}s \"{cut.words}\" -> {plan[\"query\"]!r} | era: {era}'
-                + (f' | archival: {plan[\"archival_query\"]!r}' if plan['archival_query'] else ''))
+      report = format_cut_plan_report(cuts, plans)
+      open('cut_plan_report.txt', 'w').write(report + '\n')
+      print(report)
+      print(f'shot_list.json written: {len(updated.beats)} beats')
       "
       ```
 
+      It prints one line per cut (`start-end "words" -> 'query' | era: ...`); a split cut prints
+      `split into N pieces:` followed by one indented line per piece with its own times, words,
+      query and era; the last line counts the cuts, the split cuts and the resulting footage
+      beats. The same text is saved to `cut_plan_report.txt`.
+
       If this raises `CutPlannerOutputError`, STOP and report the exact message — do not
       hand-patch the response or quietly re-run the subagent. `shot_list.json` is unchanged when
-      it raises. Show the printed cut-by-cut plan in the Step 7 report.
+      it raises. The split checks name the cut and piece: a piece that does not start where the
+      previous one ends or does not cover the whole cut (`pieces must tile the cut`), a boundary
+      that is `not the start of a word in this cut` (the message lists the cut's word starts), a
+      piece shorter than 1.3 s (`every piece must last at least 1.3 s`), more than 4 pieces, a
+      single piece, or an entry with both `pieces` and a `query`. Boundaries within 5 ms of a word
+      start (or of the cut's start/end) are accepted and snapped to the exact time. Show the
+      printed cut-by-cut plan, pieces included, in the Step 7 report.
 
-   The planner also tags every cut with an `era` (the year the words are about, or `modern`); a cut about a year before 1960 gets `archival_query` and `archival_broad_query` and is sourced from archives in Stage 2 instead of stock sites (except before 1839, where the judge may also pick stock). Cuts about a year before 1900 are **mixed** beats (they also get archival queries): before 1839 the judge chooses between real historical artwork (Met open access, Library of Congress prints) and the ordinary stock footage (stock only when nothing in it contradicts the period); from 1839 to 1899 it chooses among photographs and artwork (no stock); cuts from 1900 to 1959 keep the film-then-photos flow. A hand-colored lithograph of a battle counts as artwork. In Step 7, tell Josh how many cuts are archival.
+   The planner also tags every cut (and every piece of a split cut, on its own) with an `era` (the year the words are about, or `modern`); a cut about a year before 1960 gets `archival_query` and `archival_broad_query` and is sourced from archives in Stage 2 instead of stock sites (except before 1839, where the judge may also pick stock). Cuts about a year before 1900 are **mixed** beats (they also get archival queries): before 1839 the judge chooses between real historical artwork (Met open access, Library of Congress prints) and the ordinary stock footage (stock only when nothing in it contradicts the period); from 1839 to 1899 it chooses among photographs and artwork (no stock); cuts from 1900 to 1959 keep the film-then-photos flow. A hand-colored lithograph of a battle counts as artwork. In Step 7, tell Josh how many cuts are archival.
 
 7. Report to the user: total beats, how many are footage vs. graphic, how many are page highlights, how many are show-as-is images, how many are talking-head
-   (black screen) beats, the per-cut footage plan printed by Step 6b, and the path to
+   (black screen) beats, the per-cut footage plan printed by Step 6b (all of
+   `cut_plan_report.txt`, including every split cut's pieces with their times, words and queries,
+   and how many cuts were split into how many pieces), and the path to
    `shot_list.json`, followed by the linked-graph section printed by:
 
    ```bash
@@ -509,9 +543,9 @@ If a run stops partway through because of quota exhaustion (either `check_prefli
 before anything started, or a live 403/`quotaExceeded` from the YouTube API mid-run), do NOT
 re-run Step 1 — it resets `used_footage_ids.json` (so later beats could reuse candidates earlier
 beats already used), also wipes `archival_work/` and `archival_picks.json`, and re-spends the
-channel-resolution quota. Instead, continue Step 2 at the first modern beat in `footage_beats.json`
-whose `footage_output/beat_<beat_index>.mp4` doesn't exist yet, and Step 2A at the first archival
-beat in `archival_beats.json` whose `footage_output/beat_<n>.mp4` doesn't exist yet (mixed beats resume from Step 2M, the rest from 2A). Before resuming,
+channel-resolution quota. Instead, run `.venv/bin/python -m footage.batch status` (it lists, per kind, the
+beats with no `footage_output/beat_<n>.mp4` yet) and continue Steps 2, 2A and 2M: every batch `prep-*`
+command without beat numbers takes exactly those beats (mixed beats resume from Step 2M, the rest from 2A). Before resuming,
 check that `used_footage_ids.json` matches the clips already in `footage_output/`: one entry per
 modern clip, one `["archive", ...]` entry per archival film beat, one to three per archival photo
 beat, one to three `["archive", ...]` entries per mixed beat won by stills (artwork or photos) and one `["<source>", "<id>"]` entry per mixed beat won by stock; if not, tell the user rather than guessing.
@@ -563,6 +597,10 @@ beat, one to three `["archive", ...]` entries per mixed beat won by stills (artw
    # video's footage_output/ and thumbnails/ untouched.
    shutil.rmtree('footage_output', ignore_errors=True)
    shutil.rmtree('thumbnails', ignore_errors=True)
+   # The previous video's modern judging files, so no old verdict can ever be applied to this video.
+   import glob
+   for old in glob.glob('candidates_*.json') + glob.glob('scoring_prompt_*.txt') + glob.glob('scoring_response_*.txt'):
+       os.remove(old)
    reset_archival_state()
 
    json.dump([], open('used_footage_ids.json', 'w'))
@@ -584,64 +622,72 @@ beat, one to three `["archive", ...]` entries per mixed beat won by stills (artw
    silently drop to Pexels-only; tell the user so they can trim beats, wait for tomorrow's
    quota reset, or request a quota increase.
 
-2. Read `footage_beats.json`. For EACH `(beat_index, query, subject)` tuple, in order
-   (substitute the real values as trailing `sys.argv` arguments — `query`/`subject` need
-   double-quoting since they contain spaces and apostrophes, e.g. the trailing arguments for
-   beat 3 look like `" 3 "tokyo subway platform" "Tokyo's subway system"`. Double quotes, not
-   single. If a value contains `"`, `$`, or a backtick, escape it with a backslash):
+**Speed: run Stage 2 in batches (read before Step 2).** One 192-beat video once took 13+ hours because every
+beat went strictly one at a time: search, ONE judge, save its answer by hand, download, next beat. Steps 2, 2A and
+2M now use one tested tool, `.venv/bin/python -m footage.batch <command>` (`footage/batch.py`), in three phases
+per batch: **prep** many beats at once (a small thread pool, 4 beats at a time by default: `--workers N`), run
+the **judges** in parallel (up to 8 subagents at a time), then **apply** the verdicts in beat order. The rules
+are the same as the one-beat flow; only the waiting is shared:
 
-   a. Prepare the combined scoring input (real Pexels + YouTube + Envato search, excluding both
-      the fixed channels and any candidate already used earlier in this run), and record the real
-      quota this beat's YouTube search just spent. Every beat now searches all three sources in
-      parallel for up to 10 total candidates (`PEXELS_SPLIT=4` + `YOUTUBE_SPLIT=3` +
-      `ENVATO_SPLIT=3`) — Envato only ever searches its Stock Footage category, never Motion
-      Graphics (Global Constraint), and a query that returns zero Envato results (including a
-      login/session hiccup or a Playwright error on Envato's side) does not stop the beat; it just
-      means fewer than 10 candidates that round, same as any other source coming up short. An
-      Envato failure (as opposed to a genuinely empty search) prints a line starting
-      `WARNING: Envato contributed 0 candidates ...` naming the real cause — note any you see
-      for the Step 3 report:
+- **Which beats.** A `prep-*` command without beat numbers takes every beat of its kind that has no
+  `footage_output/beat_<n>.mp4` yet (`status` lists them), so it also resumes a stopped run. An `apply-*` command
+  without beat numbers takes the beats that were prepped and have no clip yet. A long list can be given in chunks
+  (for example 12 beats per command) to stay inside the 10-minute Bash timeout; or run the command with
+  `run_in_background: true` and wait for it to finish.
+- **Judges.** Every `prep-*` command prints one line per beat that needs a judge:
+  `JUDGE beat=<n> model=<default|opus> prompt=<abs path> response=<abs path>`. For each, spawn ONE subagent
+  (Agent tool; `model: "opus"` when the line says `model=opus`; it needs Read access for the thumbnails). Its
+  whole instructions are: "Read the file <prompt path> with your Read tool. Its content is your full
+  instructions: follow them exactly and reply with only the JSON it asks for." (Reading the file is the same
+  instructions as pasting it, without re-typing it.) Run up to 8 judges at once, in the background when you
+  like. Then save each judge's answer unedited, either from its output file
+  (`.venv/bin/python -m footage.batch extract <kind> <n>=<output file path> [<n>=<path> ...]`, with kind
+  `modern`, `film`, `photo` or `mixed`; it takes the judge's LAST JSON answer) or from its reply text
+  (`.venv/bin/python -m footage.batch save-response <kind> <n> <<'EOF'` ... `EOF`). Never write or change a
+  verdict yourself; a judge answer with no JSON verdict is an error to report, not something to fill in.
+- **Apply in order.** `apply-*` handles the beats in beat order, exactly like the one-beat flow (same
+  download, render, landscape checks, YouTube look and `used_footage_ids.json` bookkeeping). It prints one line
+  per beat (`DONE`, `SKIPPED` when the clip already exists, `NEEDS_PHOTOS`, `NO_ACCEPTABLE`, `DUPLICATE`,
+  `ERROR`, `NOT_STARTED`) and a summary, and exits 0 (all fine), 2 (some beats flagged) or 1 (an error).
+- **Duplicates.** Beats in one batch are searched before any of them is applied, so two judges can pick the same
+  clip or photo. Apply refuses the second one (`DUPLICATE`, nothing downloaded, nothing marked used); never
+  swap in another candidate. Re-run the printed `prep-*` command for that beat (it now excludes the used clip
+  and deletes the old answer), judge it again and apply it. Wait until no judge of that beat is still running
+  before re-running its prep. Apply refuses an answer older than its prompt, and `extract` refuses an output
+  file that never mentions the beat's prompt path or is older than the prompt. That is the only time a beat is judged twice: its
+  candidates changed, exactly as if it had been prepared after the earlier beat in the one-beat flow.
+- **One Envato browser at a time.** `prep-modern`, `prep-mixed`, `apply-modern` and `apply-mixed` all drive the
+  one Envato login profile: never run two of them at the same time (inside one command the tool already takes
+  turns). `prep-film` and `prep-photos` use no Envato and may run alongside one of them. Never run two `apply-*`
+  commands at once (they all write `used_footage_ids.json`).
+- **Archive downloads retry by themselves.** Commons, LoC, the Met and archive.org requests are retried up to 4
+  times with backoff on 429, 5xx, timeouts and broken downloads (honoring Retry-After), and the judges get small
+  thumbnails (Commons 960 px, LoC ~640 px), not full-size originals. A thumbnail that still fails is dropped
+  with a `WARNING` naming the status and rate-limit headers.
+
+2. Modern footage beats (`footage_beats.json`, `(beat_index, query, subject)` tuples).
+
+   a. Prepare the combined scoring input for many beats (real Pexels + YouTube + Envato search, excluding both the
+      fixed channels and any candidate already used), recording the real quota each beat's YouTube search spent:
 
       ```bash
-      .venv/bin/python -c "
-      import dataclasses, json, os, sys
-      from dotenv import load_dotenv
-      from footage.combined_build import prepare_combined_scoring
-      from footage.quota import PER_BEAT_UNITS, record_spend
-
-      beat_index, query, subject = sys.argv[1], sys.argv[2], sys.argv[3]
-      load_dotenv()
-      pexels_api_key = os.environ['PEXELS_API_KEY']
-      youtube_api_key = os.environ['YOUTUBE_API_KEY']
-      envato_profile_dir = os.environ.get('ENVATO_PROFILE_DIR', '.envato_automation_profile')
-      excluded_channel_ids = frozenset(json.load(open('excluded_channel_ids.json')))
-      used_ids = frozenset(tuple(pair) for pair in json.load(open('used_footage_ids.json')))
-
-      candidates, prompt = prepare_combined_scoring(
-          query=query, subject=subject,
-          pexels_api_key=pexels_api_key, youtube_api_key=youtube_api_key,
-          excluded_channel_ids=excluded_channel_ids,
-          thumbnails_dir=f'thumbnails/beat_{beat_index}',
-          envato_profile_dir=envato_profile_dir,
-          exclude_ids=used_ids,
-      )
-      record_spend(PER_BEAT_UNITS, 'youtube_quota_usage.json')
-
-      json.dump(
-          [{'source': c.source, 'display_id': c.display_id, 'thumbnail_path': c.thumbnail_path,
-            'payload': dataclasses.asdict(c.payload)} for c in candidates],
-          open(f'candidates_{beat_index}.json', 'w'),
-      )
-      open(f'scoring_prompt_{beat_index}.txt', 'w').write(prompt)
-      " <beat_index> "<query>" "<subject>"
+      .venv/bin/python -m footage.batch prep-modern [<beat_index> ...]
       ```
 
-      If this raises `ValueError: no candidates found...`, `PexelsError`, or `YouTubeError`,
-      STOP and report it — do not skip the beat or substitute a generic query without telling
-      the user. (Envato failures never reach here — `prepare_combined_scoring` treats Envato as a
-      purely additive source and contributes zero Envato candidates for the beat, with a printed
-      `WARNING`, instead of raising; see the note above.) A `YouTubeError` mentioning 403 / `quotaExceeded` means the
-      daily quota ran out despite the pre-flight estimate (estimate and live usage can drift): run
+      Run it with a long Bash timeout (`timeout: 600000`). For each beat it writes `candidates_<n>.json` and
+      `scoring_prompt_<n>.txt`. Every beat searches all three sources for up to 10 total candidates
+      (`PEXELS_SPLIT=4` + `YOUTUBE_SPLIT=3` + `ENVATO_SPLIT=3`). Envato only ever searches its Stock Footage
+      category, never Motion Graphics (Global Constraint), and a query that returns zero Envato results (including a
+      login/session hiccup or a Playwright error on Envato's side) does not stop the beat; it just means fewer than
+      10 candidates, same as any other source coming up short. An Envato failure (as opposed to a genuinely empty
+      search) prints a line `[beat <n>] WARNING: Envato contributed 0 candidates ...` naming the real cause: note
+      any you see for the Step 3 report. Fewer than 10 candidates (but at least one) is fine.
+
+      A beat that fails (`ERROR` line: `ValueError: no candidates found...`, `PexelsError`, `YouTubeError`) stops
+      the batch: no further beat is started (beats already running finish) and the command exits 1. STOP and
+      report it; do not skip the beat or substitute a generic query without telling the user. (Envato failures
+      never stop a beat: see above.) A `YouTubeError` mentioning 403 / `quotaExceeded` means the daily quota ran
+      out despite the pre-flight estimate (estimate and live usage can drift): run
 
       ```bash
       .venv/bin/python -c "
@@ -655,156 +701,87 @@ beat, one to three `["archive", ...]` entries per mixed beat won by stills (artw
       "
       ```
 
-      (same `.env` / `YOUTUBE_DAILY_QUOTA_UNITS` convention as Step 1 — marking today exhausted
-      against the wrong cap would silently defeat a real quota override) so tomorrow's
-      pre-flight check reflects reality, then STOP and report which beat to resume from once
-      quota resets. Fewer than 10 total candidates (but at least one, from any of the three
-      sources) is fine; continue normally.
+      (same `.env` / `YOUTUBE_DAILY_QUOTA_UNITS` convention as Step 1 — marking today exhausted against the wrong
+      cap would silently defeat a real quota override) so tomorrow's pre-flight check reflects reality, then STOP
+      and report that the run resumes (Step 2 `prep-modern` with no beat numbers) once quota resets.
 
-   b. Spawn ONE subagent (Agent tool) with `scoring_prompt_<beat_index>.txt`'s content as its
-      full instructions. The subagent must have Read tool access (to view the thumbnails) — a
-      normal Claude Code subagent, no special model requirement.
+   b. For each `JUDGE` line, spawn the judge subagent as described above (no special model: a normal Claude Code
+      subagent with Read access to view the thumbnails), up to 8 at a time.
 
-   c. Save the subagent's raw text response to `scoring_response_<beat_index>.txt`.
+   c. Save each judge's raw answer to `scoring_response_<n>.txt` with `extract modern ...` or
+      `save-response modern <n>`.
 
-   d. Take the subagent's response and validate + download the (duration-clamped, if YouTube or
-      Envato) winning clip:
+   d. Validate the verdicts and download the (duration-clamped, if YouTube or Envato) winning clips, in order:
 
       ```bash
-      .venv/bin/python -c "
-      import json, os, sys
-      from dotenv import load_dotenv
-      from footage.combined_build import CombinedCandidate, resolve_combined_winner
-      from footage.envato import EnvatoCandidate
-      from footage.pexels import PexelsCandidate, VideoFile
-      from footage.youtube import YouTubeCandidate
-      from footage.scoring_output import NoAcceptableCandidateError, parse_scoring_output
-
-      beat_index = sys.argv[1]
-      load_dotenv()
-      envato_profile_dir = os.environ.get('ENVATO_PROFILE_DIR', '.envato_automation_profile')
-      candidates_data = json.load(open(f'candidates_{beat_index}.json'))
-      candidates = []
-      for c in candidates_data:
-          if c['source'] == 'pexels':
-              p = c['payload']
-              payload = PexelsCandidate(
-                  id=p['id'], url=p['url'], thumbnail_url=p['thumbnail_url'], duration=p['duration'],
-                  width=p['width'], height=p['height'],
-                  video_files=[VideoFile(**vf) for vf in p['video_files']],
-              )
-          elif c['source'] == 'envato':
-              payload = EnvatoCandidate(**c['payload'])
-          else:
-              payload = YouTubeCandidate(**c['payload'])
-          candidates.append(CombinedCandidate(c['source'], c['display_id'], c['thumbnail_path'], payload))
-
-      raw_response = open(f'scoring_response_{beat_index}.txt').read()
-      target_duration = json.load(open('beat_durations.json'))[beat_index]
-
-      try:
-          winner_index = parse_scoring_output(raw_response, num_candidates=len(candidates))
-      except NoAcceptableCandidateError as e:
-          print(f'NO ACCEPTABLE FOOTAGE for beat {beat_index}: {e.reasoning or \"(no reason given)\"}')
-          sys.exit(2)
-
-      path = resolve_combined_winner(
-          candidates, winner_index, f'footage_output/beat_{beat_index}.mp4', target_duration,
-          envato_profile_dir=envato_profile_dir,
-      )
-
-      used_ids = json.load(open('used_footage_ids.json'))
-      winner = candidates[winner_index]
-      used_ids.append([winner.source, winner.display_id])
-      json.dump(used_ids, open('used_footage_ids.json', 'w'))
-      print(f'beat {beat_index}: downloaded {path} (source={winner.source})')
-      " <beat_index>
+      .venv/bin/python -m footage.batch apply-modern [<beat_index> ...]
       ```
 
-      If this exits with status 2 (`NO ACCEPTABLE FOOTAGE`), STOP and flag that specific beat
-      to the user (its index, query, subject, and the reasoning printed) — do not re-run the
-      scorer yourself or pick a candidate on your own judgment. If `parse_scoring_output` raises
-      a `ScoringOutputError` (malformed output, not a considered "none acceptable" verdict),
-      STOP and report the exact error. If this raises `YouTubeDownloadError`/`PortraitVideoError`
-      (a YouTube or Envato winner — Envato reuses the same landscape backstop probe),
-      `EnvatoDownloadError` (an Envato winner), or a Pexels-side download failure, STOP and report
-      it with the beat's index, query, subject, and the winning candidate's source/id — do NOT
-      silently substitute the next-ranked candidate. No clip file is left behind for that beat,
-      and its id is not added to `used_footage_ids.json`.
+      Run it with a long Bash timeout (`timeout: 600000`), or in the background for a long list.
+      `NO_ACCEPTABLE` (the judge answered `winner_index: null`) flags that beat: tell the user its index, query,
+      subject and the reasoning printed; do not re-run the scorer yourself or pick a candidate on your own
+      judgment. The other beats carry on. `DUPLICATE`: see "Duplicates" above. An `ERROR` stops the command at
+      that beat (later beats show `NOT_STARTED`; `--keep-going` continues past it when you know the other beats
+      are unaffected): a `ScoringOutputError` (malformed output, not a considered "none acceptable" verdict), a
+      missing response file, `YouTubeDownloadError`/`PortraitVideoError` (a YouTube or Envato winner — Envato
+      reuses the same landscape backstop probe), `EnvatoDownloadError` (an Envato winner) or a Pexels-side
+      download failure: STOP and report it with the beat's index, query, subject, and the winning candidate's
+      source/id — do NOT silently substitute the next-ranked candidate. No clip file is left behind for that beat,
+      and its id is not added to `used_footage_ids.json`. An Envato winner that downloads as a `.zip` is unzipped
+      (the largest video inside) before trimming; a zip with no video is an `EnvatoDownloadError`.
 
-2A. Read `archival_beats.json`. For EACH beat (a dict with `beat_index`, `start`, `end`, `era`, `subject`, `medium`, `query`,
-   `archival_query`, `archival_broad_query`) whose `medium` is `"photo"`, in order, run a-d (beats with another medium go to 2M). Substitute the real `beat_index` as the trailing
-   argument.
+2A. Archival beats whose `medium` is `"photo"` (1900 to 1959; beats with another medium go to 2M). Each is a dict
+   in `archival_beats.json` with `beat_index`, `start`, `end`, `era`, `subject`, `medium`, `query`,
+   `archival_query`, `archival_broad_query`.
 
-   a. Search film and write the judging prompt (prints `film candidates: yes` or `no`):
+   a. Search film and write the judging prompts:
 
       ```bash
-      .venv/bin/python -c "
-      import json, sys
-      from footage.archival_build import prepare_film
-      beat = next(b for b in json.load(open('archival_beats.json')) if b['beat_index'] == int(sys.argv[1]))
-      used = json.load(open('used_footage_ids.json'))
-      print('film candidates:', 'yes' if prepare_film(beat, used) else 'no')
-      " <beat_index>
+      .venv/bin/python -m footage.batch prep-film [<beat_index> ...]
       ```
 
-      Run this command with a long Bash timeout (`timeout: 600000`): it reads still frames from archive.org
-      (up to 5 candidates, 3 frames each, at most 30 s per frame) and prints one progress line per candidate.
+      Run it with a long Bash timeout (`timeout: 600000`), or in the background, or in chunks: each beat reads
+      still frames from archive.org (up to 5 candidates, 3 frames each, at most 30 s per frame) and prints one
+      progress line per candidate. A beat with film prints `film candidates: yes` and a `JUDGE` line; a beat
+      without prints `NEEDS_PHOTOS` and goes straight to c (the command prints the `prep-photos` line to run).
 
-      An `ArchiveError`, `ArchivalSearchError`, `ArchivalRenderError` (for example ffmpeg missing) or `ValueError` raised by `prepare_film` (or by `prepare_photos` in c)
-      STOPs the stage with the beat index. A transient 5xx, 429 or timeout may be retried once by re-running that
-      step; do not skip the beat.
+      An `ArchiveError`, `ArchivalSearchError`, `ArchivalRenderError` (for example ffmpeg missing) or `ValueError`
+      for a beat (here or in c) STOPs the stage with the beat index. Network errors were already retried with
+      backoff; a transient failure may still be retried once by re-running that one beat's command; do not skip
+      the beat.
 
-   b. Only when it printed `film candidates: yes`: spawn ONE subagent (Agent tool, `model: "opus"`, because the
-      archival judging reads thumbnails and applies the era and graphic rules) with
-      `archival_work/film_prompt_<beat_index>.txt`'s content as its full instructions (it needs Read access for the
-      thumbnail frames of film, or the thumbnails of photos). Save its raw response to `archival_work/film_response_<beat_index>.txt`, then:
+   b. Judge each `JUDGE` line (`model: "opus"`, because the archival judging reads thumbnails and applies the era
+      and graphic rules), save the answers to `archival_work/film_response_<n>.txt` (`extract film ...` or
+      `save-response film <n>`), then:
 
       ```bash
-      .venv/bin/python -c "
-      import json, sys
-      from footage.archival_build import finish_film
-      beat = next(b for b in json.load(open('archival_beats.json')) if b['beat_index'] == int(sys.argv[1]))
-      raw = open(f'archival_work/film_response_{sys.argv[1]}.txt').read()
-      print('film used' if finish_film(beat, raw) else 'no acceptable film')
-      " <beat_index>
+      .venv/bin/python -m footage.batch apply-film [<beat_index> ...]
       ```
 
-      If it prints `film used`, this beat is done; go to the next beat. If a `ScoringOutputError`, `ArchivalRenderError`
-      or `ArchiveError` is raised, STOP and report it with the beat index. Do not pick on your own.
+      `DONE` (film used) finishes that beat. `NEEDS_PHOTOS` (no acceptable film) goes to c; the command prints the
+      `prep-photos` line for them. A `ScoringOutputError`, `ArchivalRenderError` or `ArchiveError` (`ERROR` line)
+      STOPs the stage with the beat index. Do not pick on your own.
 
-   c. If there was no film or none was acceptable, search photos and write the judging prompt (an
+   c. Search photos and write the judging prompts for the beats with no film or no acceptable film (an
       `ArchivalSearchError` here means nothing was found even after broadening: STOP and report it):
 
       ```bash
-      .venv/bin/python -c "
-      import json, sys
-      from footage.archival_build import prepare_photos
-      beat = next(b for b in json.load(open('archival_beats.json')) if b['beat_index'] == int(sys.argv[1]))
-      prepare_photos(beat, json.load(open('used_footage_ids.json')))
-      print('photo candidates ready')
-      " <beat_index>
+      .venv/bin/python -m footage.batch prep-photos <beat_index> [<beat_index> ...]
       ```
 
-   d. Spawn ONE subagent (Agent tool, `model: "opus"`, for the same reason as in b) with `archival_work/photo_prompt_<beat_index>.txt`'s content as
-      its full instructions. Save its raw response to `archival_work/photo_response_<beat_index>.txt`, then:
+   d. Judge each `JUDGE` line (`model: "opus"`, for the same reason as in b), save the answers to
+      `archival_work/photo_response_<n>.txt` (`extract photo ...` or `save-response photo <n>`), then:
 
       ```bash
-      .venv/bin/python -c "
-      import json, sys
-      from footage.archival_build import finish_photos
-      beat = next(b for b in json.load(open('archival_beats.json')) if b['beat_index'] == int(sys.argv[1]))
-      finish_photos(beat, open(f'archival_work/photo_response_{sys.argv[1]}.txt').read())
-      print('photos used for beat', sys.argv[1])
-      " <beat_index>
+      .venv/bin/python -m footage.batch apply-photos [<beat_index> ...]
       ```
 
-      A `ScoringOutputError` (for example the judge returned no photo at all: photos must always be picked), an
-      `ArchiveError` or a render error STOPs the stage with the beat index. When the `ScoringOutputError` is because
-      the judge returned no picks (every candidate broke the real-imagery, not-graphic or no-text-screen rules), tell
-      Josh the beat index and the judge's reasoning. Josh can send photo files or links; save them locally (real
-      archival photos only, tell me the source/license) and run 2A-e for that beat; a show-as-is link in the script
-      also works but needs a Stage 1 + Stage 2 redo. Never pick a photo yourself.
+      `NO_ACCEPTABLE` means the judge returned no picks (every candidate broke the real-imagery, not-graphic or
+      no-text-screen rules; photos must always be picked): tell Josh the beat index and the judge's reasoning.
+      Josh can send photo files or links; save them locally (real archival photos only, tell me the
+      source/license) and run 2A-e for that beat; a show-as-is link in the script also works but needs a Stage 1 +
+      Stage 2 redo. Never pick a photo yourself. Any other `ScoringOutputError`, an `ArchiveError` or a render
+      error (`ERROR` line) STOPs the stage with the beat index.
 
    e. Supplying photos yourself (to replace a pick, or when the judge returned no picks). Save the real archival
       photos locally, then render that one beat. The source note is required (where the photos came from and their
@@ -822,59 +799,39 @@ beat, one to three `["archive", ...]` entries per mixed beat won by stills (artw
 
       A missing file or a blank source note raises `ValueError`: STOP and report it. Re-run Stage 4 afterwards.
 
-2M. Mixed beats (`medium` is `"artwork_or_stock"` or `"photo_or_artwork"`). For EACH such beat in `archival_beats.json`, in
-   order, run m-a to m-c instead of 2A a-d (there is no film search for them). Substitute the real `beat_index` as the trailing argument.
+2M. Mixed beats (`medium` is `"artwork_or_stock"` or `"photo_or_artwork"`; no film search for them).
 
-   m-a. Search artwork, photos and (only for `"artwork_or_stock"`) stock, and write the judging prompt:
-
-      ```bash
-      .venv/bin/python -c "
-      import json, os, sys
-      from dotenv import load_dotenv
-      from footage.mixed_build import prepare_mixed
-      from footage.quota import PER_BEAT_UNITS, record_spend
-
-      load_dotenv()
-      pexels_key = os.environ['PEXELS_API_KEY']
-      youtube_key = os.environ['YOUTUBE_API_KEY']
-      envato_profile_dir = os.environ.get('ENVATO_PROFILE_DIR', '.envato_automation_profile')
-      excluded = json.load(open('excluded_channel_ids.json'))
-      beat = next(b for b in json.load(open('archival_beats.json')) if b['beat_index'] == int(sys.argv[1]))
-      used = json.load(open('used_footage_ids.json'))
-      counts = prepare_mixed(beat, used, pexels_key, youtube_key, frozenset(excluded), envato_profile_dir)
-      print('candidates:', counts)
-      if beat['medium'] == 'artwork_or_stock':
-          record_spend(PER_BEAT_UNITS, 'youtube_quota_usage.json')
-      " <beat_index>
-      ```
-
-      Run this command with a long Bash timeout (`timeout: 600000`): it downloads candidate thumbnails. Only `"artwork_or_stock"` beats run the
-      stock search, so only they record YouTube quota. An `ArchivalSearchError`, `ArchiveError`, `YouTubeError`, `PexelsError` or `ValueError`
-      STOPs the stage with the beat index; a YouTube 403/`quotaExceeded` follows the quota handling in Step 2a. A Bash timeout counts as a STOP too: re-run
-      this step once (the Met client now bounds its own time); if it times out again, report it. A `shot_list.json` built before this branch (pre-1839
-      beats with blank archival queries) must be regenerated with Stage 1 Step 6b before running this step.
-
-   m-b. Spawn ONE subagent (Agent tool, `model: "opus"`) with `archival_work/mixed_prompt_<beat_index>.txt`'s content as its full instructions
-      (it needs Read access for the thumbnails). Save its raw response to `archival_work/mixed_response_<beat_index>.txt`.
-
-   m-c. Apply the verdict (prints `stills`, `stock` or `none`):
+   m-a. Search artwork, photos and (only for `"artwork_or_stock"`) stock, and write the judging prompts:
 
       ```bash
-      .venv/bin/python -c "
-      import json, os, sys
-      from dotenv import load_dotenv
-      from footage.mixed_build import finish_mixed
-      load_dotenv()
-      envato_profile_dir = os.environ.get('ENVATO_PROFILE_DIR', '.envato_automation_profile')
-      beat = next(b for b in json.load(open('archival_beats.json')) if b['beat_index'] == int(sys.argv[1]))
-      raw = open(f'archival_work/mixed_response_{sys.argv[1]}.txt').read()
-      print(finish_mixed(beat, raw, envato_profile_dir))
-      " <beat_index>
+      .venv/bin/python -m footage.batch prep-mixed [<beat_index> ...]
       ```
 
-      On `none`: STOP, tell Josh the beat index and the judge's reasoning, and ask for an image he supplies (run 2A-e `render_manual_photos`;
-      a real historical artwork or photo only, with its source/license). Never pick one yourself. A `ScoringOutputError`, `ArchivalRenderError`,
-      `ArchiveError`, `YouTubeDownloadError`, `EnvatoDownloadError`, `PortraitVideoError` or `DownloadError` STOPs the stage with the beat index.
+      Run it with a long Bash timeout (`timeout: 600000`), or in the background, or in chunks: it downloads
+      candidate thumbnails. Only `"artwork_or_stock"` beats run the stock search, so only they record YouTube
+      quota (the command records it). An `ArchivalSearchError`, `ArchiveError`, `YouTubeError`, `PexelsError` or
+      `ValueError` (`ERROR` line) STOPs the stage with the beat index; a YouTube 403/`quotaExceeded` follows the
+      quota handling in Step 2a. A Bash timeout counts as a STOP too: re-run the unfinished beats once (the Met
+      client bounds its own time); if it times out again, report it. A `shot_list.json` built before this branch
+      (pre-1839 beats with blank archival queries) must be regenerated with Stage 1 Step 6b before running this step (Step 6 first if `shot_list_director.json` does not exist).
+
+   m-b. Judge each `JUDGE` line (`model: "opus"`; it needs Read access for the thumbnails) and save the answers to
+      `archival_work/mixed_response_<n>.txt` (`extract mixed ...` or `save-response mixed <n>`).
+
+   m-c. Apply the verdicts (each `DONE` line ends in `stills` or `stock`):
+
+      ```bash
+      .venv/bin/python -m footage.batch apply-mixed [<beat_index> ...]
+      ```
+
+      On `NO_ACCEPTABLE` (the judge picked nothing): tell Josh the beat index and the judge's reasoning, and ask
+      for an image he supplies (run 2A-e `render_manual_photos`; a real historical artwork or photo only, with its
+      source/license). Never pick one yourself. A `ScoringOutputError`, `ArchivalRenderError`, `ArchiveError`,
+      `YouTubeDownloadError`, `EnvatoDownloadError`, `PortraitVideoError` or `DownloadError` (`ERROR` line) STOPs
+      the stage with the beat index.
+
+   Flagged beats (`NO_ACCEPTABLE`) in 2, 2A and 2M do not stop the other beats of the batch; once the batch is
+   applied, STOP and tell Josh about every flagged beat before going on.
 
 3. Report to the user: how many footage beats were sourced (and how many, if any, were flagged
    as having no acceptable footage), a source breakdown (how many clips came from Pexels vs.
@@ -1008,9 +965,11 @@ same video. It is lower-risk than what these passes already covered.
 
 **Per-beat flags vs. stage-level STOPs.** Like Stage 2's "NO ACCEPTABLE FOOTAGE", a reviewer
 verdict against one beat does not end the stage. When Step 2d prints `GRAPHIC BEAT REJECTED` or
-`GRAPHIC BEAT NOT APPROVED`, flag that beat, stop working on it, close its tab, and continue with
-the next graphic beat; Step 3 lists the flagged beats. Every other "STOP" in this stage (anything
-Step 2d's two verdicts don't cover: browser tools unreachable, claude.ai not loading, a
+`GRAPHIC BEAT NOT APPROVED`, flag that beat, stop working on it, and continue with the other
+beats of its group (its tab stays open until the whole group is done, Step 2 G6); Step 3
+lists the flagged beats. A correction interrupted by a torn-down tab group (Step 2's recovery
+note) is flagged the same way. Every other "STOP" in this stage (anything Step 2d's two verdicts
+don't cover: browser tools unreachable, claude.ai not loading, a
 Cloudflare or login page, no design system matching the name, a UI step that doesn't match the
 description, a parse or verification error) ends the whole stage, because it will almost
 certainly hit every later beat the same way. See the catch-all at the end of Step 2.
@@ -1021,7 +980,10 @@ certainly hit every later beat the same way. See the catch-all at the end of Ste
   `claude-in-chrome` skill, then load the core set in ONE `ToolSearch` call:
   `select:mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__tabs_create_mcp,mcp__claude-in-chrome__tabs_close_mcp,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__find,mcp__claude-in-chrome__browser_batch`.
   Call `tabs_context_mcp` first. Then create your OWN tab with `tabs_create_mcp` for each graphic
-  beat. Never reuse a tab id from another session, and close your tab when that beat is done.
+  beat (up to three at a time, one per beat of the current group: Step 2 "Three canvases at a
+  time"). Never reuse a tab id from another session, and close a group's tabs only when every beat
+  of that group is exported or flagged (Step 2 G6), never while another tab's generation or export
+  is running.
   After `tabs_close_mcp` inside a `browser_batch`, later items in that batch fail, so make it the
   last item. **Closing a tab can tear down the whole tracked tab group even when another tab of
   yours is still open**, observed live running two beats' tabs at once: closing beat 0's tab
@@ -1158,7 +1120,8 @@ live, 2026-09-28):
 Observed timings: first generations took 30 seconds to about 2 minutes, and corrections took
 15-20 seconds, plus up to about 40 seconds of automatic checking and the 30-second settle. If
 `elapsed_s` passes 600 (10 minutes) without `settled: true`, take a screenshot and STOP. Report the
-beat index, the canvas URL, and what the chat panel shows. Do not resubmit the prompt.
+beat index, the canvas URL, and what the chat panel shows. Do not resubmit the prompt. (With
+several beats in flight, Step 2's G3 adjusts this rule: STOP only if the chat is still working.)
 
 ### Procedure S: capture the canvas screenshot for the reviewer
 
@@ -1278,11 +1241,164 @@ Run this on a canvas whose latest turn has settled (Procedure W):
    and confirm with the user that this is the right shot list (a video whose only italic spans are page highlights and/or show-as-is images (non-graphic spans) has no graphic beats; Stage 3 is simply not needed then, so do not stop to ask: skip to Stage 4). Do not clear `graphics_output/` for
    a video that has nothing to render.
 
-2. Read `graphic_beats.json`. For EACH `(beat_index, graphic, target_duration)` entry, in order,
-   run sub-steps a-f. Create a fresh browser tab for the beat when you first need it (sub-step b),
-   and close it after the beat finishes or is flagged. A beat flagged in sub-step d (rejected, or
-   not approved within the attempt cap) is set aside and the loop moves on to the next entry; any
-   other STOP in this step ends the whole stage (see "Per-beat flags vs. stage-level STOPs" above).
+2. Read `graphic_beats.json`. Every entry `(beat_index, graphic, target_duration)` goes through
+   sub-steps a-f below, but up to THREE beats are worked on at a time, in groups, as described in
+   "Three canvases at a time" right here. Sub-steps a-f are the per-beat procedure: their commands,
+   checks, state files and STOP rules are unchanged. A beat flagged in sub-step d (rejected, or not
+   approved within the attempt cap) is set aside while the rest of its group continues; any other
+   STOP in this step ends the whole stage (see "Per-beat flags vs. stage-level STOPs" above).
+
+   **Why.** One generation takes 3 to 7 minutes, mostly waiting; a real run did 19 graphics one at
+   a time in about 3 hours. Running three canvases side by side overlaps those waits.
+
+   **FIRST-USE CAUTION.** The 3-at-a-time pipeline is untested live. Only TWO concurrent canvases
+   were ever tried (2026-09-28: a second tab's canvas created while the first tab's export was
+   running; and two first generations at the same time, both settled correctly). On the first
+   real use, watch every tab for generation errors and for signs of throttling. The existing STOP
+   rules are unchanged and take precedence: a generation over 10 minutes (Procedure W, as
+   adjusted in G3), an error message, an unexpected dialog or anything else in the catch-all at
+   the end of Step 2 still ends the whole stage. When such a STOP happens with several beats in
+   flight, say in the report that it happened in group mode and that the next run (or the resume)
+   should use groups of ONE. Softer signs do not stop the stage but switch it to one at a time:
+   generations clearly slower than the usual 3 to 7 minutes (yet under 10), or a "We got
+   interrupted" canvas found during the recovery below. Then finish or flag the beats of the
+   current group, and run every later group as a group of ONE beat (exactly the earlier
+   sequential loop) for the rest of the stage; tell Josh in the Step 3 report what happened.
+   Groups of two are a middle step if one at a time is too slow and three misbehaved.
+
+   **Three canvases at a time (the Step 2 loop).** Take the next three entries of
+   `graphic_beats.json` in order (fewer for the last group) and run them as one group:
+
+   G1. **Prompts (no browser).** For each beat of the group run sub-step a's command, then spawn
+      the three prompt-writer subagents at the same time (one Agent call each, in one message).
+      As each answers, save its response and run sub-step b's parse command for that beat, then
+      do sub-step b's **exact data strings check** (below sub-step b's parse command) before that
+      beat's prompt goes anywhere near the browser. You may do G1 for the NEXT group while the
+      current group is still in the browser (it only writes that next group's own per-beat files).
+   G2. **Tabs and submits (one browser, one tab group, one tab at a time).** Call
+      `tabs_context_mcp` (with `createIfEmpty: true` if no tab group exists), then create one
+      tab per beat with `tabs_create_mcp` (three tabs in the same tab group). Then, for the
+      FIRST beat's tab, do sub-step b's browser parts 1 to 6 completely, in the tab G2 just
+      created for that beat (part 1 then only navigates it; do not create another tab):
+      homepage, design-system chip, Animation card, typing the prompt, the submit
+      `browser_batch` with `window.__mg =
+      undefined` and the first Procedure W poll, the lost-click check, and the "Animated video"
+      chip check). Only then do the same for the second beat's tab, then the third. Never send two
+      tool calls at once, and never two `javascript_tool` calls at once on the same tab: run one
+      call, wait for its result, then the next (parallel evals time out, see "Live-run notes").
+      Write down each beat's project URL (`https://claude.ai/design/p/<project-uuid>`, from
+      the first Procedure W poll's `url`) next to its beat index in your own notes: it is how you
+      find the canvas again if the tab group is torn down before `canvas_<beat_index>.json` exists
+      (reattaching by this bare project URL, without `?file=`, is NOT verified live; see the
+      recovery note below).
+   G3. **Wait on all tabs in turn.** `window.__mg` lives on each page, so each tab has its own
+      tracker; reset it only in that tab's own submit or correction `browser_batch`, never from
+      another tab. Poll the unsettled tabs round-robin with the **short poll** below (one
+      `javascript_tool` call on one tab, then the next tab), and between rounds wait with the
+      `computer` tool's `wait` action (its `duration` is at most 10 seconds: use `duration: 10`,
+      two or three times, for about 20 to 30 seconds between rounds) instead of running the
+      30-second Procedure W loop on one tab while the others sit. While a canvas is generating, a
+      JavaScript call can still time out (about 45 s; see "Live-run notes"): if a short poll on a
+      tab times out, take a screenshot of that tab instead and poll it again next round. The
+      short poll is the Procedure W snippet with its first loop budget cut from 30 to 5 seconds;
+      it reads and updates the same per-tab tracker. **A short poll never settles a canvas by
+      itself**: it samples only 5 seconds at a time, so a quick "Found issues — fixing…" turn or
+      a short correction could start and finish unseen between two polls of the same tab. When a
+      short poll comes back idle with `sawWorking: true` (or says `settled: true`), run ONE full
+      30-second Procedure W poll on that tab (it samples continuously); the canvas is settled only
+      when that full poll returns `settled: true`, otherwise go back to short polls. **The
+      10-minute limit** of Procedure W applies to each tab separately (`elapsed_s` counts from
+      that tab's own submit) and, in a group, means: STOP only when `elapsed_s` is over 600 AND
+      the latest poll still shows the chat working. A tab that went idle while you were busy in
+      another tab (an export, Procedure S) is not a STOP even if `elapsed_s` is over 600: confirm
+      it with the full 30-second poll as above.
+
+      ```js
+      const W = (window.__mg ??= { sawWorking: false, doneSince: null, start: Date.now() });
+      const isIdle = () => {
+        const btns = [...document.querySelectorAll('button')].filter(b => b.offsetParent);
+        const stop = btns.some(b => b.getAttribute('aria-label') === 'Stop' || b.title === 'Stop');
+        const send = btns.some(b => b.title === 'Send (Enter)');
+        const checking = document.body.innerText.includes('Checking the design for issues');
+        return send && !stop && !checking && !document.title.startsWith('✶');
+      };
+      const t0 = Date.now();
+      while (Date.now() - t0 < 5000) {
+        if (!isIdle()) { W.sawWorking = true; W.doneSince = null; }
+        else if (W.sawWorking) {
+          W.doneSince ??= Date.now();
+          if (Date.now() - W.doneSince >= 30000) break;
+        }
+        await new Promise(r => setTimeout(r, 500));
+      }
+      ({ settled: W.sawWorking && W.doneSince !== null && Date.now() - W.doneSince >= 30000,
+         sawWorking: W.sawWorking, elapsed_s: (Date.now() - W.start) / 1000,
+         title: document.title, url: location.href })
+      ```
+
+      Keep the full 30-second Procedure W snippet as the poll INSIDE every submit or correction
+      `browser_batch` (sub-step b part 5 and sub-step e part 3): that first poll is what sees the
+      turn start (`sawWorking`), which a short poll a minute later could miss on a fast
+      correction, and it is what the lost-click checks read. Short polls are only for the rounds
+      after that.
+   G4. **As each tab settles** (confirmed by a full 30-second Procedure W poll, see G3), finish
+      that beat's sub-step b there (parts 7 and 8: the `.dc.html` check and Procedure S in that
+      tab), run the record command, and spawn that beat's reviewer
+      (sub-step c) in the background. Reviewers for different beats may run at the same time.
+      Keep polling the other tabs while reviewers work. When a reviewer answers, run sub-step d for
+      that beat. A correction (sub-step e) is done in that beat's own tab; its submit batch resets
+      only that tab's tracker; the beat then goes back into the G3 round-robin until it settles,
+      gets a new Procedure S screenshot, and is reviewed again (the attempt cap is per beat,
+      exactly as before). As sub-step e's last paragraph says, the beat does not go to export
+      until it is approved; the other beats of the group carry on meanwhile.
+   G5. **Exports one at a time.** An approved beat waits for the export slot. Only ONE beat is
+      exported at a time, from start to finish: Procedure E steps 1 to 6 in that beat's tab, then
+      Step 2f's command (find the download, move it, ffprobe-verify it) and clicking "Done".
+      Only after Step 2f has printed `exported and verified` (or the stage has stopped) may the
+      next approved beat's export start. Reasons: the export needs that tab's visibility override
+      to keep running, the export dialog is clicked by coordinates from that tab's screenshot,
+      and Step 2f matches the download by time and refuses to guess if two new `.mp4` files
+      arrive. While an export is running, make no tool calls on the other tabs (their
+      generations keep running on their own); resume polling them after Step 2f.
+   G6. **Close the group's tabs only at the end.** Do NOT close a tab when its beat is exported or
+      flagged: closing one tab can tear down the whole tracked tab group, including tabs whose
+      generation or export is still running (see "Browser setup and ground rules"). When every
+      beat of the group is exported or flagged, close all of the group's tabs (one
+      `tabs_close_mcp` per tab; inside a `browser_batch` it must be the last item), then start
+      the next group at G1 (or G2, if its prompts are already done) with `tabs_context_mcp`
+      `createIfEmpty: true`. Closing the first tab may already tear down the whole group; if a
+      later `tabs_close_mcp` fails with "tab group no longer exists", the group is gone: that is
+      expected here, not a failure, so just start the next group.
+
+   **If the tab group is torn down mid-group** (a tool call fails with "tab group no longer
+   exists" or "couldn't determine which page this action targets"): call `tabs_context_mcp` with
+   `createIfEmpty: true`, create a tab for each unfinished beat, and navigate each to its canvas
+   URL (from `canvas_<beat_index>.json`, or the project URL in your notes if that file does not
+   exist yet; the project-URL route is unverified, so if that page does not show the chat and
+   the canvas, STOP and report the URL). Wait about 6 seconds and check each canvas's state
+   BEFORE doing anything else in it (a screenshot, or `document.body.innerText`): (1) if the chat
+   shows "We got interrupted", that turn was cut off. If it was the beat's FIRST generation
+   (`canvas_<beat_index>.json` does not exist yet), re-run it from a FRESH canvas: start that beat
+   again at sub-step b part 1 in the new tab (keep its existing authoring prompt; never resubmit
+   into the interrupted canvas). If it was a CORRECTION (`canvas_<beat_index>.json` exists), do
+   not restart the beat (that would rewrite its state files back to attempt 1 and reset its
+   attempt cap): flag the beat for Step 3 with its canvas URL, its attempt number and "correction
+   interrupted when the tab group was torn down", and carry on with the others. Either way, from
+   then on run one beat at a time (FIRST-USE CAUTION); (2) if it is still working, resume
+   polling it (the navigation reset its tracker; a fresh Procedure W poll sees the work and continues normally, but its `elapsed_s`
+   restarts, so count the 10-minute limit from the original submit yourself); (3) if it is idle
+   with a complete response, it finished while detached: use Procedure W's "reattaching to a turn
+   that already finished elsewhere" check, then continue with that beat's next sub-step. A beat
+   whose export was interrupted restarts Procedure E from step 1 (a new export start time) once
+   no other export is running.
+
+   **Per-beat state files are unchanged.** Every beat still writes exactly the same files, with
+   the same names and contents, as in the one-at-a-time loop: `prompt_writer_prompt_<n>.txt`,
+   `prompt_writer_response_<n>.txt`, `authoring_prompt_<n>.txt`, `canvas_<n>.json`,
+   `review_state_<n>.json`, `graphics_screenshots/beat_<n>_attempt_<k>.png`,
+   `reviewer_prompt_<n>_<k>.txt`, `reviewer_response_<n>_<k>.txt`, `correction_<n>_<k>.txt`,
+   `export_started_<n>.txt` and `graphics_output/beat_<n>.mp4`. They are all keyed by beat index, so
+   three beats in flight never share a file. Run each command with that beat's own index.
 
    a. Build the prompt-writer subagent's instructions and spawn it (Opus):
 
@@ -1326,10 +1442,24 @@ Run this on a canvas whose latest turn has settled (Procedure W):
       If `parse_prompt_writer_output` raises `PromptWriterOutputError`, STOP and report it. Do not
       hand-patch the response and continue.
 
+      **Exact data strings check (before submitting).** Read `authoring_prompt_<beat_index>.txt`
+      next to the beat's `data` in `graphic_beats.json` and re-check every string that will be
+      shown on screen (title, labels, names, places, figures, units, dates) character for
+      character: the same capitalization, the same digits and separators, the same spelling of
+      names. Prompt writers repeatedly changed capitalization in live runs (for example `26 Miles`
+      where the data says `26 miles`). If anything differs, send a follow-up message (SendMessage)
+      to the SAME prompt-writer subagent naming each changed string and its exact form from the
+      data, and asking for its full corrected response; save that response over
+      `prompt_writer_response_<beat_index>.txt`, re-run the parse command above, and check again.
+      Never fix the authoring prompt by hand. A follow-up to the same prompt writer fixed this
+      every time it was tried. Fields that are notes for the writer rather than on-screen text
+      (for example `note`, `style`, a layer description) do not have to appear verbatim.
+
       Then create the canvas in the browser. **Do these in this order.** Each part was verified
       live, and skipping the template click silently produces the wrong format.
 
-      1. Create a new tab (`tabs_create_mcp`) and navigate it to `https://claude.ai/design`. Wait
+      1. Create a new tab (`tabs_create_mcp`; in a group, use the tab G2 already created for this
+         beat instead) and navigate it to `https://claude.ai/design`. Wait
          about 3 seconds. The page reads "What should we create?" and has a prompt box. Below the
          box is a "CHOOSE A TEMPLATE" grid: Blank, Mobile app design, Slides, Document, Wireframe,
          **Animation**, and so on. If you see a Cloudflare challenge or a login page instead, STOP
@@ -1473,9 +1603,11 @@ Run this on a canvas whose latest turn has settled (Procedure W):
 
       If this exits with status 2 (`GRAPHIC BEAT REJECTED` or `GRAPHIC BEAT NOT APPROVED`), stop
       working on THIS beat only: note its index, archetype, the reasoning printed, and its canvas
-      URL from `canvas_<beat_index>.json` for Step 3's report, close its tab, and continue with
-      the next entry in `graphic_beats.json`. This is a per-beat flag, not a stage failure, the
-      same as Stage 2's "NO ACCEPTABLE FOOTAGE". Do not re-run the reviewer yourself, approve it
+      URL from `canvas_<beat_index>.json` for Step 3's report, and continue with the other beats
+      of its group (leave its tab open: the group's tabs are closed together in G6, never one by
+      one while another tab's generation or export is running). This is a per-beat flag, not a
+      stage failure, the same as Stage 2's "NO ACCEPTABLE FOOTAGE". Do not re-run the reviewer
+      yourself, approve it
       on your own judgment, or export it. No clip is written for a flagged beat. If
       `parse_reviewer_output` raises `ReviewerOutputError` (a malformed reviewer response), that
       is different: STOP the whole stage and report the exact error. Do not hand-patch the
@@ -1483,6 +1615,14 @@ Run this on a canvas whose latest turn has settled (Procedure W):
 
    e. **Send the correction** (only when 2d printed "NEXT: send correction"):
 
+      0. **Exact data strings check (before submitting the correction).** Re-check every
+         on-screen string that `correction_<beat_index>_<attempt>.txt` mentions against the beat's
+         `data` in `graphic_beats.json`, exactly as in sub-step b's check (capitalization,
+         numbers, names). If the reviewer's correction changes one (for example asks for
+         `26 Miles` where the data says `26 miles`), send a follow-up message (SendMessage) to the
+         SAME reviewer subagent naming the string and its exact form, save its full corrected
+         response over `reviewer_response_<beat_index>_<attempt>.txt`, re-run sub-step d (which
+         rewrites the correction file) and check again. Never edit the correction file by hand.
       1. Navigate the beat's tab to the canvas URL from `canvas_<beat_index>.json`, then wait
          about 6 seconds. Chat history, canvas, and timeline all come back, even in a brand-new
          tab. This was verified live.
@@ -1494,8 +1634,10 @@ Run this on a canvas whose latest turn has settled (Procedure W):
          click it and type again, then re-check.
       3. `find` "Send button". It is the button titled "Send (Enter)". Then, in one
          `browser_batch`: run `window.__mg = undefined`, click that ref, and run the Procedure W
-         snippet. Keep running Procedure W until `settled: true`. Take a screenshot to confirm the
-         chat shows your correction as a new message, followed by a reply describing what changed.
+         snippet. Keep running Procedure W until `settled: true` (in a group, after this first
+         30-second poll the beat joins the G3 round-robin of short polls). Take a screenshot to
+         confirm the chat shows your correction as a new message, followed by a reply describing
+         what changed.
          If `sawWorking` is still `false` after the first 30-second poll, the message probably
          wasn't sent. Check the screenshot before doing anything else. Check that the URL's
          `?file=` is still the same `.dc.html` file. If it changed, STOP and report it.
@@ -1519,7 +1661,8 @@ Run this on a canvas whose latest turn has settled (Procedure W):
       ```
 
       Then go back to sub-step 2c for the SAME beat. The attempt number has already advanced in
-      `review_state_<beat_index>.json`. Do not move on to the next beat.
+      `review_state_<beat_index>.json`. Do not move this beat on to export (or start a later
+      group) until it is approved or flagged; the other beats of its group carry on meanwhile.
 
    f. **Export** (only when 2d printed "NEXT: export"): run Procedure E steps 1-6. Then move the
       download into place and verify it. This waits up to 60 seconds for exactly one new `.mp4`
@@ -1580,8 +1723,9 @@ Run this on a canvas whose latest turn has settled (Procedure W):
 
       If it exits with status 3 (`NO DOWNLOAD`), click the dialog's "Download" button exactly once
       and run this command again. If it still exits 3, STOP and report it. Once it succeeds,
-      click "Done" in the dialog and close the beat's tab. If it raises `RuntimeError` (more than
-      one new `.mp4`), STOP and report the file list. Do not guess which one is right. If
+      click "Done" in the dialog. Do not close the beat's tab yet: the group's tabs are closed
+      together in G6, and the next approved beat's export may start now (G5). If it raises
+      `RuntimeError` (more than one new `.mp4`), STOP and report the file list. Do not guess which one is right. If
       it raises `ClipVerificationError` (missing file, too small, unreadable by `ffprobe`, duration
       more than 1 second off target, or resolution not exactly 1920×1080), STOP and report the
       exact error with the beat's index, archetype, and canvas URL. The bad file (the
@@ -1596,12 +1740,16 @@ Run this on a canvas whose latest turn has settled (Procedure W):
    button, an unexpected dialog, or anything else that differs from the UI described here. These
    are stage-level because they will almost certainly repeat on every later beat. Report the beat
    index, the canvas URL if one exists, what you did, and what you saw, including a screenshot,
-   plus which beats (if any) were already exported or flagged before the stop. Do not retry
+   plus which beats (if any) were already exported or flagged before the stop. When several beats
+   were in flight (a group), report each one's state: its canvas or project URL, its last
+   attempt, and whether its generation was still running (it keeps running in claude.ai/design;
+   do not close the tabs, so Josh can look). Do not retry
    blindly, and do not improvise a different path through the product.
 
 3. Report to the user: how many graphic beats were rendered, how many (if any) were flagged as
-   rejected or not approved within the attempt cap (for each flagged beat: its index, archetype,
-   the reviewer's reasoning, and its canvas URL, so Josh can review or fix them after the run),
+   rejected or not approved within the attempt cap, or as "correction interrupted" (Step 2's
+   recovery note) (for each flagged beat: its index, archetype, the reviewer's reasoning or the
+   interruption and its attempt number, and its canvas URL, so Josh can review or fix them after the run),
    and the `graphics_output/` directory that contains the exported clips. This is the
    deliverable for this stage. Stage 4 (Final Assembly) consumes it alongside `footage_output/`
    and `shot_list.json`. A flagged beat has no `graphics_output/beat_<n>.mp4`, so Stage 4 will

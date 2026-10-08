@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import zipfile
 
 from footage.envato import EnvatoCandidate
 
@@ -59,7 +60,42 @@ def find_completed_download(
     return new[0]
 
 
+_VIDEO_EXTENSIONS = (".mov", ".mp4", ".m4v", ".mxf", ".avi", ".mkv", ".webm", ".mts")
+
+
+def _extract_video_from_zip(zip_path: str, out_dir: str) -> str:
+    """Live finding 2026-10-07/08: some Envato items download as a .zip (master plus extras), which ffmpeg
+    cannot read. Copy out the largest video member (by uncompressed size) under a safe flat name."""
+    with zipfile.ZipFile(zip_path) as archive:
+        members = [m for m in archive.infolist() if not m.is_dir()]
+        videos = [m for m in members if os.path.splitext(m.filename)[1].lower() in _VIDEO_EXTENSIONS]
+        if not videos:
+            raise EnvatoDownloadError(
+                f"Envato download {os.path.basename(zip_path)} is a zip with no video file in it "
+                f"(contents: {', '.join(m.filename for m in members) or 'nothing'})")
+        largest = max(videos, key=lambda m: m.file_size)
+        extension = os.path.splitext(largest.filename)[1].lower()
+        out_path = os.path.join(out_dir, f"envato_master{extension}")
+        with archive.open(largest) as src, open(out_path, "wb") as dst:
+            shutil.copyfileobj(src, dst, 1024 * 1024)
+    return out_path
+
+
+def _starts_like_a_zip(path: str) -> bool:
+    """A zip archive starts with a local-file header. (zipfile.is_zipfile only looks for an end-of-archive
+    record near the end, which a video file's last bytes can happen to contain.)"""
+    with open(path, "rb") as f:
+        return f.read(4) == b"PK\x03\x04" and zipfile.is_zipfile(path)
+
+
 def trim_envato_clip(source_path: str, dest_path: str, duration_seconds: float) -> str:
+    if os.path.exists(source_path) and _starts_like_a_zip(source_path):
+        # The extracted master can be gigabytes: keep it in a temp dir that is removed on exit.
+        with tempfile.TemporaryDirectory(prefix="envato_unzip_",
+                                         dir=os.path.dirname(os.path.abspath(source_path))) as unzip_dir:
+            return trim_envato_clip(_extract_video_from_zip(source_path, unzip_dir), dest_path, duration_seconds)
+    # Stage 2 Step 1 deletes footage_output/, so the destination folder may not exist yet.
+    os.makedirs(os.path.dirname(os.path.abspath(dest_path)), exist_ok=True)
     # Re-encodes (never stream-copies). Envato masters arrive as either ProRes (.mov) or
     # in-camera h264 (Task 3's live DJI_0416.MOV), and the production destination is
     # footage_output/beat_<n>.mp4 — a `-c copy` of ProRes into an .mp4 container fails outright

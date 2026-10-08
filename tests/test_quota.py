@@ -118,3 +118,40 @@ def test_tracker_file_is_never_left_corrupt_after_rapid_writes(tmp_path):
 
     # Verify spent_today can still read it correctly
     assert spent_today(tracker_path, now=now + 100) == 1000
+
+
+def _spend_many(tracker_path, count, units):
+    for _ in range(count):
+        record_spend(units, tracker_path)
+
+
+def test_record_spend_from_many_threads_loses_no_spend(tmp_path):
+    """Batch prep (footage/batch.py) records quota from worker threads at once."""
+    import threading
+
+    tracker_path = str(tmp_path / "quota.json")
+    threads = [threading.Thread(target=_spend_many, args=(tracker_path, 40, 102)) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    with open(tracker_path) as f:
+        assert len(json.load(f)) == 320
+    assert spent_today(tracker_path) == 320 * 102
+
+
+def test_record_spend_from_several_processes_loses_no_spend(tmp_path):
+    import multiprocessing
+
+    tracker_path = str(tmp_path / "quota.json")
+    ctx = multiprocessing.get_context("spawn")
+    procs = [ctx.Process(target=_spend_many, args=(tracker_path, 25, 102)) for _ in range(4)]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join(60)
+    assert all(p.exitcode == 0 for p in procs)
+
+    with open(tracker_path) as f:
+        assert len(json.load(f)) == 100

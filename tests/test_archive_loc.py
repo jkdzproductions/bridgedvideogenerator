@@ -33,6 +33,14 @@ def test_an_open_photo_becomes_a_candidate_using_the_largest_image():
     assert c.rights == _OPEN and c.page_url == "https://www.loc.gov/item/2018666985/"
 
 
+def test_the_judge_thumbnail_is_the_smallest_derivative_of_at_least_400px_whatever_the_list_order():
+    big_first = list(reversed(_result()["image_url"]))
+    [c] = parse_loc_photos_response({"results": [_result(image_url=big_first)]})
+
+    assert c.thumbnail_url == "https://tile.loc.gov/storage-services/service/pnp/cwpb/03300/03359r.jpg"
+    assert c.media_url == "https://tile.loc.gov/storage-services/service/pnp/cwpb/03300/03359v.jpg"
+
+
 def test_rights_may_be_a_list():
     [c] = parse_loc_photos_response({"results": [_result(item={"rights_advisory": [_OPEN, "More text."]})]})
 

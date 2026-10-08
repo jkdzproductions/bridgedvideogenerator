@@ -28,6 +28,33 @@ Plain-language explanations; he asks before anything is pushed (he said "push" e
 ### 4. Session scratch
 Generated test files (`graphic_beats.json`, `canvas_*.json`, `reviewer_*`, `authoring_prompt_*`, `graphics_screenshots/`, `graphics_output/` with the 7 test clips) are gitignored in this folder and can be deleted or left. The 7+3 test projects in Josh's Claude Design account can be deleted by him.
 
+## Stage 2 speed work (2026-10-08, branch from the 13-hour live run)
+Stage 2 now runs in batches with `python -m footage.batch` (CLAUDE.md Stage 2, "Speed" note): prep many beats
+on a 4-thread pool, up to 8 judges in parallel, apply in beat order (duplicate winners refused, never swapped).
+Archive HTTP retries 429/5xx/broken downloads with backoff and logs rate-limit headers; Commons judge
+thumbnails are 960 px renditions, not originals. Envato `.zip` downloads are unzipped before trimming. Quota
+recording is thread/process safe. Not yet run live end to end: the first real run should watch the
+`[beat n] WARNING` lines and the per-beat summary.
+
+## Split cuts and three canvases at a time (2026-10-08, stacked on the Stage 2 speed branch)
+- **Split cuts (Stage 1 Step 6b, live-untested):** the cut planner may now return `pieces` for a
+  footage cut whose words name several visualizable things (for example "Oil has tank farms, grain
+  has silos, water has towers." becomes 3 clips). The prompt lists each cut's word start times. The
+  code checks that the pieces tile the cut, that every boundary is a word start (snapped within
+  5 ms), that each piece lasts at least 1.3 s, and that there are 2 to 4 pieces. `apply_cut_plans`
+  turns each piece into its own footage beat before Stage 2, so beat numbers stay sequential.
+  Step 6 now also writes `shot_list_director.json`, and Step 6b reads that copy, so it can be
+  re-run. The real 2026-10-08 manual split plan (21 cuts, 44 pieces) passes the new checks
+  except in one place: a piece reuses the query of the cut just before it, which the existing
+  "consecutive shots differ" rule rejects.
+- **Stage 3 three canvases at a time (documentation only, NOT run live):** Step 2 is now a group
+  pipeline (G1-G6): prompt writers run in parallel, there is one tab per beat, submits happen one
+  after another, tabs are polled round-robin with short polls, exports run strictly one at a time,
+  and a group's tabs are closed only when the whole group is done. Read the FIRST-USE CAUTION:
+  only two concurrent canvases were ever tried, so fall back to one at a time on any error or
+  throttling. Authoring prompts and reviewer corrections are now re-checked for exact data
+  strings before they are submitted; a mismatch gets a follow-up message to the same subagent.
+
 ## What works
 Stages 1, 2 and 4 (shot list, footage sourcing, final assembly) work as in the original, including
 the 10-channel YouTube blacklist (`footage/youtube_channels.py`), the 1,000,000-subscriber rule and

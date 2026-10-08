@@ -1,5 +1,6 @@
 # footage/combined_build.py
 import os
+import threading
 from dataclasses import dataclass
 from typing import Literal, Optional, Union
 
@@ -24,6 +25,11 @@ PEXELS_SPLIT = 4
 YOUTUBE_SPLIT = 3
 ENVATO_SPLIT = 3
 YOUTUBE_MAX_PER_PAGE = 50  # matches footage/youtube_build.py — a full page so filters have room
+
+# Every Envato call launches Chromium on the same persistent profile directory, and Chromium refuses to open a
+# profile another browser already holds. Batch prep (footage/batch.py) prepares beats in worker threads, so the
+# Envato part of each beat holds this lock; Pexels/YouTube work still overlaps with it.
+ENVATO_PROFILE_LOCK = threading.Lock()
 
 
 @dataclass
@@ -75,8 +81,10 @@ def _envato_candidates(
         item_id for source, item_id in exclude_ids if source == "envato"
     )
     try:
-        results = search_envato(query, envato_exclude_ids, profile_dir, max_results=ENVATO_SPLIT)
-        details = fetch_envato_details(results, profile_dir) if results else {}
+        # One browser at a time on the shared persistent profile (batch prep runs beats in threads).
+        with ENVATO_PROFILE_LOCK:
+            results = search_envato(query, envato_exclude_ids, profile_dir, max_results=ENVATO_SPLIT)
+            details = fetch_envato_details(results, profile_dir) if results else {}
     except (EnvatoError, PlaywrightError) as e:
         # Additive source, never a hard requirement — a login/session problem, a Playwright
         # timeout, or a locked profile must not block Pexels/YouTube candidates from reaching

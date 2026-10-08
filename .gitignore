@@ -1,4 +1,5 @@
 .venv/
+.venv
 .env
 __pycache__/
 *.pyc
@@ -10,6 +11,8 @@ director_input.json
 director_response.json
 cut_planner_prompt.txt
 cut_planner_response.json
+cut_plan_report.txt
+shot_list_director.json
 shot_list.json
 script_marked.txt
 graph_links.json
@@ -34,6 +37,7 @@ tests/fixtures/dry_run_winner.mp4
 excluded_channel_ids.json
 beat_durations.json
 youtube_quota_usage.json
+*.json.lock
 tests/fixtures/combined_dry_run_thumbnails/
 tests/fixtures/combined_dry_run_winner.mp4
 tests/fixtures/combined_dry_run_quota.json

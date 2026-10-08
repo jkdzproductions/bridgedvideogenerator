@@ -531,3 +531,38 @@ def test_scoring_prompt_rejects_any_readable_text_on_youtube_candidates():
     lowered = prompt.lower()
     assert 'for a "source=youtube" candidate the rule above is stricter' in lowered
     assert "mirrored" in lowered and "any readable text" in lowered
+
+
+def test_envato_browser_work_never_overlaps_across_threads(tmp_path, monkeypatch):
+    """Batch prep runs beats in a thread pool, but every Envato call opens the SAME persistent Chromium profile,
+    which two browsers cannot share: the Envato part of each beat must run one at a time."""
+    import threading
+    import time as _time
+
+    import footage.combined_build as combined_mod
+
+    _patch(monkeypatch, [_pexels(1)], _search_result([]), envato_results=[_envato("e1")])
+    active, peak, guard = [0], [0], threading.Lock()
+
+    def slow_search(query, exclude_ids, profile_dir, max_results):
+        with guard:
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
+        _time.sleep(0.05)
+        with guard:
+            active[0] -= 1
+        return [_envato("e1")]
+
+    monkeypatch.setattr(combined_mod, "search_envato", slow_search)
+    threads = [
+        threading.Thread(target=prepare_combined_scoring, kwargs=dict(
+            query="q", subject="s", pexels_api_key="k", youtube_api_key="k", excluded_channel_ids=frozenset(),
+            thumbnails_dir=str(tmp_path / f"beat_{i}"), envato_profile_dir=ENVATO_PROFILE_DIR))
+        for i in range(4)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert peak[0] == 1

@@ -132,6 +132,24 @@ def test_rounded_boundaries_snap_to_the_exact_cut_bounds_and_word_starts():
     assert plans[0]["pieces"][1]["end"] == plans[0]["pieces"][2]["start"] == 34.12
 
 
+def test_a_boundary_written_slightly_differently_in_end_and_start_still_snaps_to_one_word_start():
+    pieces = [dict(p) for p in OIL_GRAIN_WATER]
+    pieces[0]["end"], pieces[1]["start"] = 32.544, 32.5355  # both within 5 ms of "grain" (32.54)
+
+    plans = parse_cut_planner_output(_reply({"index": 0, "pieces": pieces}, _single(1)), _cuts())
+
+    assert plans[0]["pieces"][0]["end"] == plans[0]["pieces"][1]["start"] == 32.54
+
+
+def test_an_inner_boundary_at_the_cut_end_explains_the_next_piece_would_be_empty():
+    pieces = [dict(p) for p in OIL_GRAIN_WATER[:2]]
+    pieces[1]["end"] = 35.978
+    pieces.append(_piece(35.978, 35.978, "x", "water tower small town Iowa"))
+
+    with pytest.raises(CutPlannerOutputError, match=r"cut 0 piece 1 ends at the cut's end.*piece 2"):
+        parse_cut_planner_output(_reply({"index": 0, "pieces": pieces}, _single(1)), _cuts())
+
+
 def test_a_boundary_that_is_not_a_word_start_is_rejected():
     pieces = [dict(p) for p in OIL_GRAIN_WATER]
     pieces[0]["end"] = pieces[1]["start"] = 32.3  # between "farms," and "grain"

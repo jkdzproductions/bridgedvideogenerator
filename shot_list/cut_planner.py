@@ -263,6 +263,10 @@ def _parse_pieces(raw_pieces, cut: FootageCut, i: int) -> list[dict]:
                 raise CutPlannerOutputError(f"{label} must end at the cut's end {cut.end:.3f}, got {end:.3f}")
             end = cut.end
         else:
+            if abs(end - cut.end) <= BOUNDARY_TOLERANCE:
+                raise CutPlannerOutputError(
+                    f"{label} ends at the cut's end {cut.end:.3f}, so piece {k + 1} and any after it would be "
+                    "empty; only the last piece may end there")
             snapped = _snap(end, word_starts)
             if snapped is None:
                 raise CutPlannerOutputError(

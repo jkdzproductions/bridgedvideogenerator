@@ -328,7 +328,9 @@ Python inside the quotes. From Step 1a on, every Stage 1 command reads `script_m
    is cut into shots of at most 6 seconds that would all inherit it. This step gives every
    footage cut its own search, based on the words spoken during that cut. Run it after Step 6
    has written `shot_list.json` and `shot_list_director.json` (the director's unsplit copy; both
-   commands below read that copy, never `shot_list.json`, so re-running Step 6b is safe).
+   commands below read that copy, never `shot_list.json`, so re-running Step 6b is safe). If
+   `shot_list_director.json` is missing (a shot list built before split cuts existed), re-run
+   Step 6; never copy a `shot_list.json` that Step 6b has already split.
 
    **Split cuts.** A cut whose words name several different things a camera could show (a list
    of nouns, places or people; "from A to B"; "X versus Y"; a run of distinct events) is split
@@ -811,7 +813,7 @@ are the same as the one-beat flow; only the waiting is shared:
       `ValueError` (`ERROR` line) STOPs the stage with the beat index; a YouTube 403/`quotaExceeded` follows the
       quota handling in Step 2a. A Bash timeout counts as a STOP too: re-run the unfinished beats once (the Met
       client bounds its own time); if it times out again, report it. A `shot_list.json` built before this branch
-      (pre-1839 beats with blank archival queries) must be regenerated with Stage 1 Step 6b before running this step.
+      (pre-1839 beats with blank archival queries) must be regenerated with Stage 1 Step 6b before running this step (Step 6 first if `shot_list_director.json` does not exist).
 
    m-b. Judge each `JUDGE` line (`model: "opus"`; it needs Read access for the thumbnails) and save the answers to
       `archival_work/mixed_response_<n>.txt` (`extract mixed ...` or `save-response mixed <n>`).

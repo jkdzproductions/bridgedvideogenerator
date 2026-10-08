@@ -1242,8 +1242,12 @@ Run this on a canvas whose latest turn has settled (Procedure W):
    a video that has nothing to render.
 
 2. Read `graphic_beats.json`. Every entry `(beat_index, graphic, target_duration)` goes through
-   sub-steps a-f below, but up to THREE beats are worked on at a time, in groups, as described in
-   "Three canvases at a time" right here. Sub-steps a-f are the per-beat procedure: their commands,
+   sub-steps a-f below. **DEFAULT GROUP SIZE IS ONE** (exactly the proven earlier sequential loop,
+   one beat completely finished or flagged before the next starts). Work in groups of up to THREE
+   beats, as described in "Three canvases at a time" right here, ONLY when Josh's run request asks
+   for it (for example "do 3 Claude Designs at a time"); otherwise use groups of one. The group
+   procedure has not been proven live, and Josh's condition for it is that graphics must not get
+   worse. Sub-steps a-f are the per-beat procedure: their commands,
    checks, state files and STOP rules are unchanged. A beat flagged in sub-step d (rejected, or not
    approved within the attempt cap) is set aside while the rest of its group continues; any other
    STOP in this step ends the whole stage (see "Per-beat flags vs. stage-level STOPs" above).

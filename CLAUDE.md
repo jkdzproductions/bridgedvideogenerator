@@ -966,8 +966,9 @@ same video. It is lower-risk than what these passes already covered.
 **Per-beat flags vs. stage-level STOPs.** Like Stage 2's "NO ACCEPTABLE FOOTAGE", a reviewer
 verdict against one beat does not end the stage. When Step 2d prints `GRAPHIC BEAT REJECTED` or
 `GRAPHIC BEAT NOT APPROVED`, flag that beat, stop working on it, and continue with the other
-beats of its group (its tab stays open until the whole group is done, Step 2 G6); Step 3 lists the flagged beats. Every other "STOP" in this stage (anything
-Step 2d's two verdicts don't cover: browser tools unreachable, claude.ai not loading, a
+beats of its group (its tab stays open until the whole group is done, Step 2 G6); Step 3
+lists the flagged beats. Every other "STOP" in this stage (anything Step 2d's two verdicts
+don't cover: browser tools unreachable, claude.ai not loading, a
 Cloudflare or login page, no design system matching the name, a UI step that doesn't match the
 description, a parse or verification error) ends the whole stage, because it will almost
 certainly hit every later beat the same way. See the catch-all at the end of Step 2.
@@ -1251,12 +1252,17 @@ Run this on a canvas whose latest turn has settled (Procedure W):
    **FIRST-USE CAUTION.** The 3-at-a-time pipeline is untested live. Only TWO concurrent canvases
    were ever tried (2026-09-28: a second tab's canvas created while the first tab's export was
    running; and two first generations at the same time, both settled correctly). On the first
-   real use, watch every tab for a generation error, an "interrupted" message, an unusually slow
-   generation (over 10 minutes, see Procedure W) or any sign of throttling or rate limiting. If any
-   of these happens, finish or flag the beats already in the browser, then FALL BACK TO ONE BEAT
-   AT A TIME (groups of one: exactly the earlier sequential loop) for the rest of the stage, and
-   tell Josh in the Step 3 report what happened. Groups of two are a middle step if one at a time
-   is too slow and three misbehaved.
+   real use, watch every tab for generation errors and for signs of throttling. The existing STOP
+   rules are unchanged and take precedence: a generation over 10 minutes (Procedure W, as
+   adjusted in G3), an error message, an unexpected dialog or anything else in the catch-all at
+   the end of Step 2 still ends the whole stage. When such a STOP happens with several beats in
+   flight, say in the report that it happened in group mode and that the next run (or the resume)
+   should use groups of ONE. Softer signs do not stop the stage but switch it to one at a time:
+   generations clearly slower than the usual 3 to 7 minutes (yet under 10), or a "We got
+   interrupted" canvas found during the recovery below. Then finish or flag the beats of the
+   current group, and run every later group as a group of ONE beat (exactly the earlier
+   sequential loop) for the rest of the stage; tell Josh in the Step 3 report what happened.
+   Groups of two are a middle step if one at a time is too slow and three misbehaved.
 
    **Three canvases at a time (the Step 2 loop).** Take the next three entries of
    `graphic_beats.json` in order (fewer for the last group) and run them as one group:
@@ -1270,27 +1276,40 @@ Run this on a canvas whose latest turn has settled (Procedure W):
    G2. **Tabs and submits (one browser, one tab group, one tab at a time).** Call
       `tabs_context_mcp` (with `createIfEmpty: true` if no tab group exists), then create one
       tab per beat with `tabs_create_mcp` (three tabs in the same tab group). Then, for the
-      FIRST beat's tab, do sub-step b's browser parts 1 to 6 completely (homepage, design-system
-      chip, Animation card, typing the prompt, the submit `browser_batch` with `window.__mg =
+      FIRST beat's tab, do sub-step b's browser parts 1 to 6 completely, in the tab G2 just
+      created for that beat (part 1 then only navigates it; do not create another tab):
+      homepage, design-system chip, Animation card, typing the prompt, the submit
+      `browser_batch` with `window.__mg =
       undefined` and the first Procedure W poll, the lost-click check, and the "Animated video"
       chip check). Only then do the same for the second beat's tab, then the third. Never send two
       tool calls at once, and never two `javascript_tool` calls at once on the same tab: run one
       call, wait for its result, then the next (parallel evals time out, see "Live-run notes").
       Write down each beat's project URL (`https://claude.ai/design/p/<project-uuid>`, from
       the first Procedure W poll's `url`) next to its beat index in your own notes: it is how you
-      find the canvas again if the tab group is torn down before `canvas_<beat_index>.json` exists.
+      find the canvas again if the tab group is torn down before `canvas_<beat_index>.json` exists
+      (reattaching by this bare project URL, without `?file=`, is NOT verified live; see the
+      recovery note below).
    G3. **Wait on all tabs in turn.** `window.__mg` lives on each page, so each tab has its own
       tracker; reset it only in that tab's own submit or correction `browser_batch`, never from
       another tab. Poll the unsettled tabs round-robin with the **short poll** below (one
       `javascript_tool` call on one tab, then the next tab), and between rounds wait with the
-      `computer` tool's `wait` action (about 20 to 30 seconds) instead of running the 30-second
-      Procedure W loop on one tab while the others sit. While a canvas is generating, a
+      `computer` tool's `wait` action (its `duration` is at most 10 seconds: use `duration: 10`,
+      two or three times, for about 20 to 30 seconds between rounds) instead of running the
+      30-second Procedure W loop on one tab while the others sit. While a canvas is generating, a
       JavaScript call can still time out (about 45 s; see "Live-run notes"): if a short poll on a
       tab times out, take a screenshot of that tab instead and poll it again next round. The
-      10-minute limit of Procedure W applies to each tab separately (`elapsed_s` counts from that
-      tab's own submit). The short poll is the Procedure W snippet with its first loop budget cut
-      from 30 to 5 seconds; it reads and updates the same per-tab tracker, and the 30 seconds of
-      continuous idle needed to settle are measured across polls by `doneSince`:
+      short poll is the Procedure W snippet with its first loop budget cut from 30 to 5 seconds;
+      it reads and updates the same per-tab tracker. **A short poll never settles a canvas by
+      itself**: it samples only 5 seconds at a time, so a quick "Found issues — fixing…" turn or
+      a short correction could start and finish unseen between two polls of the same tab. When a
+      short poll comes back idle with `sawWorking: true` (or says `settled: true`), run ONE full
+      30-second Procedure W poll on that tab (it samples continuously); the canvas is settled only
+      when that full poll returns `settled: true`, otherwise go back to short polls. **The
+      10-minute limit** of Procedure W applies to each tab separately (`elapsed_s` counts from
+      that tab's own submit) and, in a group, means: STOP only when `elapsed_s` is over 600 AND
+      the latest poll still shows the chat working. A tab that went idle while you were busy in
+      another tab (an export, Procedure S) is not a STOP even if `elapsed_s` is over 600: confirm
+      it with the full 30-second poll as above.
 
       ```js
       const W = (window.__mg ??= { sawWorking: false, doneSince: null, start: Date.now() });
@@ -1320,15 +1339,16 @@ Run this on a canvas whose latest turn has settled (Procedure W):
       turn start (`sawWorking`), which a short poll a minute later could miss on a fast
       correction, and it is what the lost-click checks read. Short polls are only for the rounds
       after that.
-   G4. **As each tab settles**, finish that beat's sub-step b there (parts 7 and 8: the `.dc.html`
-      check and Procedure S in that tab), run the record command, and spawn that beat's reviewer
+   G4. **As each tab settles** (confirmed by a full 30-second Procedure W poll, see G3), finish
+      that beat's sub-step b there (parts 7 and 8: the `.dc.html` check and Procedure S in that
+      tab), run the record command, and spawn that beat's reviewer
       (sub-step c) in the background. Reviewers for different beats may run at the same time.
       Keep polling the other tabs while reviewers work. When a reviewer answers, run sub-step d for
       that beat. A correction (sub-step e) is done in that beat's own tab; its submit batch resets
       only that tab's tracker; the beat then goes back into the G3 round-robin until it settles,
       gets a new Procedure S screenshot, and is reviewed again (the attempt cap is per beat,
-      exactly as before). Sub-step e's "do not move on to the next beat" now means: this beat
-      does not go to export until it is approved; the other beats of the group carry on.
+      exactly as before). As sub-step e's last paragraph says, the beat does not go to export
+      until it is approved; the other beats of the group carry on meanwhile.
    G5. **Exports one at a time.** An approved beat waits for the export slot. Only ONE beat is
       exported at a time, from start to finish: Procedure E steps 1 to 6 in that beat's tab, then
       Step 2f's command (find the download, move it, ffprobe-verify it) and clicking "Done".
@@ -1344,18 +1364,26 @@ Run this on a canvas whose latest turn has settled (Procedure W):
       beat of the group is exported or flagged, close all of the group's tabs (one
       `tabs_close_mcp` per tab; inside a `browser_batch` it must be the last item), then start
       the next group at G1 (or G2, if its prompts are already done) with `tabs_context_mcp`
-      `createIfEmpty: true`.
+      `createIfEmpty: true`. Closing the first tab may already tear down the whole group; if a
+      later `tabs_close_mcp` fails with "tab group no longer exists", the group is gone: that is
+      expected here, not a failure, so just start the next group.
 
    **If the tab group is torn down mid-group** (a tool call fails with "tab group no longer
    exists" or "couldn't determine which page this action targets"): call `tabs_context_mcp` with
    `createIfEmpty: true`, create a tab for each unfinished beat, and navigate each to its canvas
    URL (from `canvas_<beat_index>.json`, or the project URL in your notes if that file does not
-   exist yet). Wait about 6 seconds and check each canvas's state BEFORE doing anything else in
-   it (a screenshot, or `document.body.innerText`): (1) if the chat shows "We got interrupted",
-   that generation was cut off and must be re-run from a FRESH canvas: start that beat again at
-   sub-step b part 1 in a new tab (keep its existing authoring prompt; never resubmit into the
-   interrupted canvas); (2) if it is still working, resume polling it (the navigation reset its
-   tracker; a fresh Procedure W poll sees the work and continues normally, but its `elapsed_s`
+   exist yet; the project-URL route is unverified, so if that page does not show the chat and
+   the canvas, STOP and report the URL). Wait about 6 seconds and check each canvas's state
+   BEFORE doing anything else in it (a screenshot, or `document.body.innerText`): (1) if the chat
+   shows "We got interrupted", that turn was cut off. If it was the beat's FIRST generation
+   (`canvas_<beat_index>.json` does not exist yet), re-run it from a FRESH canvas: start that beat
+   again at sub-step b part 1 in the new tab (keep its existing authoring prompt; never resubmit
+   into the interrupted canvas). If it was a CORRECTION (`canvas_<beat_index>.json` exists), do
+   not restart the beat (that would rewrite its state files back to attempt 1 and reset its
+   attempt cap): flag the beat for Step 3 with its canvas URL, its attempt number and "correction
+   interrupted when the tab group was torn down", and carry on with the others. Either way, from
+   then on run one beat at a time (FIRST-USE CAUTION); (2) if it is still working, resume
+   polling it (the navigation reset its tracker; a fresh Procedure W poll sees the work and continues normally, but its `elapsed_s`
    restarts, so count the 10-minute limit from the original submit yourself); (3) if it is idle
    with a complete response, it finished while detached: use Procedure W's "reattaching to a turn
    that already finished elsewhere" check, then continue with that beat's next sub-step. A beat
@@ -1428,7 +1456,8 @@ Run this on a canvas whose latest turn has settled (Procedure W):
       Then create the canvas in the browser. **Do these in this order.** Each part was verified
       live, and skipping the template click silently produces the wrong format.
 
-      1. Create a new tab (`tabs_create_mcp`) and navigate it to `https://claude.ai/design`. Wait
+      1. Create a new tab (`tabs_create_mcp`; in a group, use the tab G2 already created for this
+         beat instead) and navigate it to `https://claude.ai/design`. Wait
          about 3 seconds. The page reads "What should we create?" and has a prompt box. Below the
          box is a "CHOOSE A TEMPLATE" grid: Blank, Mobile app design, Slides, Document, Wireframe,
          **Animation**, and so on. If you see a Cloudflare challenge or a login page instead, STOP
@@ -1574,8 +1603,9 @@ Run this on a canvas whose latest turn has settled (Procedure W):
       working on THIS beat only: note its index, archetype, the reasoning printed, and its canvas
       URL from `canvas_<beat_index>.json` for Step 3's report, and continue with the other beats
       of its group (leave its tab open: the group's tabs are closed together in G6, never one by
-      one while another tab's generation or export is running). This is a per-beat flag, not a stage failure, the
-      same as Stage 2's "NO ACCEPTABLE FOOTAGE". Do not re-run the reviewer yourself, approve it
+      one while another tab's generation or export is running). This is a per-beat flag, not a
+      stage failure, the same as Stage 2's "NO ACCEPTABLE FOOTAGE". Do not re-run the reviewer
+      yourself, approve it
       on your own judgment, or export it. No clip is written for a flagged beat. If
       `parse_reviewer_output` raises `ReviewerOutputError` (a malformed reviewer response), that
       is different: STOP the whole stage and report the exact error. Do not hand-patch the
@@ -1603,8 +1633,9 @@ Run this on a canvas whose latest turn has settled (Procedure W):
       3. `find` "Send button". It is the button titled "Send (Enter)". Then, in one
          `browser_batch`: run `window.__mg = undefined`, click that ref, and run the Procedure W
          snippet. Keep running Procedure W until `settled: true` (in a group, after this first
-         30-second poll the beat joins the G3 round-robin of short polls). Take a screenshot to confirm the
-         chat shows your correction as a new message, followed by a reply describing what changed.
+         30-second poll the beat joins the G3 round-robin of short polls). Take a screenshot to
+         confirm the chat shows your correction as a new message, followed by a reply describing
+         what changed.
          If `sawWorking` is still `false` after the first 30-second poll, the message probably
          wasn't sent. Check the screenshot before doing anything else. Check that the URL's
          `?file=` is still the same `.dc.html` file. If it changed, STOP and report it.
@@ -1691,8 +1722,8 @@ Run this on a canvas whose latest turn has settled (Procedure W):
       If it exits with status 3 (`NO DOWNLOAD`), click the dialog's "Download" button exactly once
       and run this command again. If it still exits 3, STOP and report it. Once it succeeds,
       click "Done" in the dialog. Do not close the beat's tab yet: the group's tabs are closed
-      together in G6, and the next approved beat's export may start now (G5). If it raises `RuntimeError` (more than
-      one new `.mp4`), STOP and report the file list. Do not guess which one is right. If
+      together in G6, and the next approved beat's export may start now (G5). If it raises
+      `RuntimeError` (more than one new `.mp4`), STOP and report the file list. Do not guess which one is right. If
       it raises `ClipVerificationError` (missing file, too small, unreadable by `ffprobe`, duration
       more than 1 second off target, or resolution not exactly 1920×1080), STOP and report the
       exact error with the beat's index, archetype, and canvas URL. The bad file (the

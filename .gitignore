@@ -35,6 +35,7 @@ tests/fixtures/dry_run_winner.mp4
 excluded_channel_ids.json
 beat_durations.json
 youtube_quota_usage.json
+*.json.lock
 tests/fixtures/combined_dry_run_thumbnails/
 tests/fixtures/combined_dry_run_winner.mp4
 tests/fixtures/combined_dry_run_quota.json

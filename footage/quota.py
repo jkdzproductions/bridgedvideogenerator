@@ -1,7 +1,10 @@
 # footage/quota.py
+import contextlib
+import fcntl
 import json
 import os
 import tempfile
+import threading
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -55,11 +58,28 @@ def spent_today(tracker_path: str, now: float = None) -> int:
     return sum(e.units for e in entries if e.timestamp >= boundary)
 
 
+_THREAD_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _tracker_lock(tracker_path: str):
+    """Serialize read-modify-write of the tracker across threads (batch prep runs beats in a thread pool) and
+    across processes (an flock on a sibling .lock file), so no recorded spend is ever lost."""
+    with _THREAD_LOCK:
+        with open(f"{tracker_path}.lock", "a") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
 def record_spend(units: int, tracker_path: str, now: float = None) -> None:
     now = time.time() if now is None else now
-    entries = _load_entries(tracker_path)
-    entries.append(_QuotaEntry(units=units, timestamp=now))
-    _save_entries(tracker_path, entries)
+    with _tracker_lock(tracker_path):
+        entries = _load_entries(tracker_path)
+        entries.append(_QuotaEntry(units=units, timestamp=now))
+        _save_entries(tracker_path, entries)
 
 
 def check_preflight(

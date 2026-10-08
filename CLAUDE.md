@@ -967,7 +967,8 @@ same video. It is lower-risk than what these passes already covered.
 verdict against one beat does not end the stage. When Step 2d prints `GRAPHIC BEAT REJECTED` or
 `GRAPHIC BEAT NOT APPROVED`, flag that beat, stop working on it, and continue with the other
 beats of its group (its tab stays open until the whole group is done, Step 2 G6); Step 3
-lists the flagged beats. Every other "STOP" in this stage (anything Step 2d's two verdicts
+lists the flagged beats. A correction interrupted by a torn-down tab group (Step 2's recovery
+note) is flagged the same way. Every other "STOP" in this stage (anything Step 2d's two verdicts
 don't cover: browser tools unreachable, claude.ai not loading, a
 Cloudflare or login page, no design system matching the name, a UI step that doesn't match the
 description, a parse or verification error) ends the whole stage, because it will almost
@@ -1119,7 +1120,8 @@ live, 2026-09-28):
 Observed timings: first generations took 30 seconds to about 2 minutes, and corrections took
 15-20 seconds, plus up to about 40 seconds of automatic checking and the 30-second settle. If
 `elapsed_s` passes 600 (10 minutes) without `settled: true`, take a screenshot and STOP. Report the
-beat index, the canvas URL, and what the chat panel shows. Do not resubmit the prompt.
+beat index, the canvas URL, and what the chat panel shows. Do not resubmit the prompt. (With
+several beats in flight, Step 2's G3 adjusts this rule: STOP only if the chat is still working.)
 
 ### Procedure S: capture the canvas screenshot for the reviewer
 
@@ -1745,8 +1747,9 @@ Run this on a canvas whose latest turn has settled (Procedure W):
    blindly, and do not improvise a different path through the product.
 
 3. Report to the user: how many graphic beats were rendered, how many (if any) were flagged as
-   rejected or not approved within the attempt cap (for each flagged beat: its index, archetype,
-   the reviewer's reasoning, and its canvas URL, so Josh can review or fix them after the run),
+   rejected or not approved within the attempt cap, or as "correction interrupted" (Step 2's
+   recovery note) (for each flagged beat: its index, archetype, the reviewer's reasoning or the
+   interruption and its attempt number, and its canvas URL, so Josh can review or fix them after the run),
    and the `graphics_output/` directory that contains the exported clips. This is the
    deliverable for this stage. Stage 4 (Final Assembly) consumes it alongside `footage_output/`
    and `shot_list.json`. A flagged beat has no `graphics_output/beat_<n>.mp4`, so Stage 4 will

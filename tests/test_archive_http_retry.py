@@ -174,6 +174,16 @@ def test_fetch_to_file_closes_every_response(monkeypatch, tmp_path):
     assert first.closed and second.closed
 
 
+def test_fetch_to_file_closes_a_failed_response_before_waiting(monkeypatch, tmp_path):
+    first = _Resp(503, {"Retry-After": "5"})
+    _script(monkeypatch, [first, _Resp(200)])
+    closed_while_waiting = []
+    monkeypatch.setattr(types_mod.time, "sleep", lambda s: closed_while_waiting.append(first.closed))
+
+    fetch_to_file("https://x.example/x.jpg", str(tmp_path / "t.jpg"))
+    assert closed_while_waiting == [True]
+
+
 def test_retry_after_as_an_http_date_is_understood(monkeypatch):
     monkeypatch.setattr(types_mod.time, "time", lambda: 1_000_000_000.0)  # 2001-09-09T01:46:40Z
     resp = _Resp(429, {"Retry-After": "Sun, 09 Sep 2001 01:46:50 GMT"})

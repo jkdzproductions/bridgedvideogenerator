@@ -174,29 +174,30 @@ def fetch_to_file(url: str, dest_path: str) -> str:
             raise ArchiveError(f"{url}: {e}") from e
         try:
             if response.status_code != 200:
-                if _retryable_status(response.status_code) and attempt < MAX_ATTEMPTS:
-                    _wait_before_retry(url, attempt, f"status {response.status_code}", response)
-                    continue
-                raise ArchiveError(f"download of {url} returned status {response.status_code}"
-                                   f"{_rate_limit_note(response)}{_gave_up(attempt)}")
-            try:
-                _write_body(response, dest_path)
-                return dest_path
-            except (_Incomplete,) + _TRANSIENT_ERRORS as e:
-                _remove(dest_path)
-                if attempt == MAX_ATTEMPTS:
-                    raise ArchiveError(f"{url}: broken download ({e}){_gave_up(attempt)}") from e
-                _wait_before_retry(url, attempt, f"broken download ({type(e).__name__}: {e})", response)
-            except requests.RequestException as e:
-                _remove(dest_path)
-                raise ArchiveError(f"{url}: {e}") from e
-            except BaseException:
-                _remove(dest_path)
-                raise
+                if not (_retryable_status(response.status_code) and attempt < MAX_ATTEMPTS):
+                    raise ArchiveError(f"download of {url} returned status {response.status_code}"
+                                       f"{_rate_limit_note(response)}{_gave_up(attempt)}")
+                problem = f"status {response.status_code}"
+            else:
+                try:
+                    _write_body(response, dest_path)
+                    return dest_path
+                except (_Incomplete,) + _TRANSIENT_ERRORS as e:
+                    _remove(dest_path)
+                    if attempt == MAX_ATTEMPTS:
+                        raise ArchiveError(f"{url}: broken download ({e}){_gave_up(attempt)}") from e
+                    problem = f"broken download ({type(e).__name__}: {e})"
+                except requests.RequestException as e:
+                    _remove(dest_path)
+                    raise ArchiveError(f"{url}: {e}") from e
+                except BaseException:
+                    _remove(dest_path)
+                    raise
         finally:
             close = getattr(response, "close", None)
             if close:
-                close()
+                close()  # before any backoff wait: never hold a connection open while sleeping
+        _wait_before_retry(url, attempt, problem, response)
     raise AssertionError("unreachable")  # pragma: no cover
 
 

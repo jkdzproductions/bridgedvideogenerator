@@ -563,6 +563,10 @@ beat, one to three `["archive", ...]` entries per mixed beat won by stills (artw
    # video's footage_output/ and thumbnails/ untouched.
    shutil.rmtree('footage_output', ignore_errors=True)
    shutil.rmtree('thumbnails', ignore_errors=True)
+   # The previous video's modern judging files, so no old verdict can ever be applied to this video.
+   import glob
+   for old in glob.glob('candidates_*.json') + glob.glob('scoring_prompt_*.txt') + glob.glob('scoring_response_*.txt'):
+       os.remove(old)
    reset_archival_state()
 
    json.dump([], open('used_footage_ids.json', 'w'))
@@ -614,7 +618,9 @@ are the same as the one-beat flow; only the waiting is shared:
 - **Duplicates.** Beats in one batch are searched before any of them is applied, so two judges can pick the same
   clip or photo. Apply refuses the second one (`DUPLICATE`, nothing downloaded, nothing marked used); never
   swap in another candidate. Re-run the printed `prep-*` command for that beat (it now excludes the used clip
-  and deletes the old answer), judge it again and apply it. That is the only time a beat is judged twice: its
+  and deletes the old answer), judge it again and apply it. Wait until no judge of that beat is still running
+  before re-running its prep. Apply refuses an answer older than its prompt, and `extract` refuses an output
+  file that never mentions the beat's prompt path or is older than the prompt. That is the only time a beat is judged twice: its
   candidates changed, exactly as if it had been prepared after the earlier beat in the one-beat flow.
 - **One Envato browser at a time.** `prep-modern`, `prep-mixed`, `apply-modern` and `apply-mixed` all drive the
   one Envato login profile: never run two of them at the same time (inside one command the tool already takes

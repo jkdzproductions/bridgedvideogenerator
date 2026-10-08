@@ -176,6 +176,27 @@ def test_trim_envato_clip_raises_when_a_zip_holds_no_video(tmp_path):
         trim_envato_clip(str(archive), str(tmp_path / "out.mp4"), 3.0)
 
 
+def test_a_video_whose_tail_looks_like_a_zip_is_still_trimmed_as_a_video(tmp_path):
+    # zipfile.is_zipfile only looks for an end-of-archive record near the END of a file; a real zip starts with
+    # "PK\x03\x04".
+    if not _ffmpeg_available():
+        pytest.skip("ffmpeg/ffprobe not installed")
+    import io
+    import zipfile
+
+    source = tmp_path / "master.mov"
+    _make_video(source, "320x180", 4)
+    tail = io.BytesIO()
+    with zipfile.ZipFile(tail, "w") as z:
+        z.writestr("x.txt", "x")
+    with open(source, "ab") as f:
+        f.write(tail.getvalue())
+    assert zipfile.is_zipfile(source)
+    dest = tmp_path / "beat_1.mp4"
+
+    assert trim_envato_clip(str(source), str(dest), 2.0) == str(dest)
+
+
 def test_trim_envato_clip_creates_the_output_directory(tmp_path):
     # Stage 2 Step 1 deletes footage_output/; the trim must recreate it.
     if not _ffmpeg_available():

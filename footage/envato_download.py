@@ -81,8 +81,15 @@ def _extract_video_from_zip(zip_path: str, out_dir: str) -> str:
     return out_path
 
 
+def _starts_like_a_zip(path: str) -> bool:
+    """A zip archive starts with a local-file header. (zipfile.is_zipfile only looks for an end-of-archive
+    record near the end, which a video file's last bytes can happen to contain.)"""
+    with open(path, "rb") as f:
+        return f.read(4) == b"PK\x03\x04" and zipfile.is_zipfile(path)
+
+
 def trim_envato_clip(source_path: str, dest_path: str, duration_seconds: float) -> str:
-    if zipfile.is_zipfile(source_path):
+    if os.path.exists(source_path) and _starts_like_a_zip(source_path):
         # The extracted master can be gigabytes: keep it in a temp dir that is removed on exit.
         with tempfile.TemporaryDirectory(prefix="envato_unzip_",
                                          dir=os.path.dirname(os.path.abspath(source_path))) as unzip_dir:

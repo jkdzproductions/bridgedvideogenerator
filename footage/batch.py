@@ -27,6 +27,7 @@ import os
 import re
 import sys
 import threading
+import traceback
 from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -132,41 +133,85 @@ def _duration(n: int) -> float:
     return _load("beat_durations.json")[str(n)]
 
 
+def _video_started() -> float:
+    """When Stage 2 Step 1 ran for this video: it writes footage_beats.json. Root-level prompt/response files
+    older than that belong to an earlier video (Step 1 does not delete them)."""
+    return os.path.getmtime("footage_beats.json") if os.path.exists("footage_beats.json") else 0.0
+
+
+def _is_current(path: str) -> bool:
+    return os.path.exists(path) and os.path.getmtime(path) >= _video_started()
+
+
 def _select(beats: Optional[list], known: dict, label: str, prompt_of: Optional[Callable] = None) -> list:
-    """The beats to work on, in beat order. Given beats must belong to `known`. By default: every beat of
-    `known` without a clip (and, for apply, with a prompt written by prep)."""
+    """The beats to work on, in beat order, each once. Given beats must belong to `known`. By default: every
+    beat of `known` without a clip (and, for apply, with a prompt written by prep for THIS video)."""
     if beats is None:
         return [n for n in sorted(known) if not os.path.exists(output_path(n))
-                and (prompt_of is None or os.path.exists(prompt_of(n)))]
+                and (prompt_of is None or _is_current(prompt_of(n)))]
     for n in beats:
         if n not in known:
             raise ValueError(f"beat {n} is not a {label} beat")
-    return list(beats)
+    return sorted(set(beats))
+
+
+def _read_response(kind: str, n: int) -> str:
+    """The judge's saved answer for beat n, only when it answers this video's current prompt."""
+    prompt_of, response_of, _, _ = JUDGES[kind]
+    prompt, response = prompt_of(n), response_of(n)
+    if not os.path.exists(prompt):
+        raise FileNotFoundError(f"no judging prompt at {prompt}: run the prep step for beat {n} first")
+    if not _is_current(prompt):
+        raise ValueError(f"{prompt} is from an earlier video (older than footage_beats.json): run the prep step "
+                         f"for beat {n} again and judge it again")
+    if not os.path.exists(response):
+        raise FileNotFoundError(f"no judge response saved at {response}")
+    if os.path.getmtime(response) < os.path.getmtime(prompt):
+        raise ValueError(f"{response} is older than its prompt {prompt} (the beat was prepared again after it "
+                         "was judged): judge it again")
+    with open(response) as f:
+        return f.read()
 
 
 # --- running beats -------------------------------------------------------------------------------
 
 class _ThreadOutput(io.TextIOBase):
-    """sys.stdout stand-in that sends each worker thread's prints to that beat's own buffer, so a beat's lines
-    are printed together (labelled) instead of interleaving with other beats'."""
+    """sys.stdout stand-in for the prep thread pool: each complete line a worker prints goes out at once,
+    labelled "[beat n] ", so progress shows while a beat runs and lines of different beats never mix mid-line."""
 
-    def __init__(self, real):
-        self.real = real
+    def __init__(self, real, lock):
+        self.real, self.lock = real, lock
         self.local = threading.local()
 
     def write(self, text):
-        buffer = getattr(self.local, "buffer", None)
-        (buffer if buffer is not None else self.real).write(text)
+        beat = getattr(self.local, "beat", None)
+        if beat is None:
+            with self.lock:
+                self.real.write(text)
+            return len(text)
+        pending = getattr(self.local, "pending", "") + text
+        *lines, self.local.pending = pending.split("\n")
+        if lines:
+            with self.lock:
+                for line in lines:
+                    self.real.write(f"[beat {beat}] {line}\n")
+                self.real.flush()
         return len(text)
+
+    def start(self, beat):
+        self.local.beat, self.local.pending = beat, ""
+
+    def end(self):
+        if getattr(self.local, "pending", ""):
+            self.write("\n")
+        self.local.beat = None
 
     def flush(self):
         self.real.flush()
 
 
-def _report(real, lock, n: int, captured: str, result: BeatResult) -> None:
+def _report(real, lock, n: int, result: BeatResult) -> None:
     with lock:
-        for line in captured.splitlines():
-            real.write(f"[beat {n}] {line}\n")
         real.write(f"beat {n}: {result.status.upper()}{' ' + result.message if result.message else ''}\n")
         real.flush()
 
@@ -175,23 +220,23 @@ def _run_parallel(beats: list, work: Callable[[int], BeatResult], workers: int) 
     """Run work(n) for each beat on a small thread pool. After the first error no further beat is started
     (beats already running finish); those are reported as not_started."""
     real, lock, stop = sys.stdout, threading.Lock(), threading.Event()
-    router = _ThreadOutput(real)
+    router = _ThreadOutput(real, lock)
 
     def task(n):
         if stop.is_set():
             result = BeatResult("not_started", "an earlier beat failed")
-            _report(real, lock, n, "", result)
+            _report(real, lock, n, result)
             return result
-        router.local.buffer = io.StringIO()
+        router.start(n)
         try:
             result = work(n)
         except Exception as e:  # noqa: BLE001 - reported per beat, the batch decides what to do
+            print(traceback.format_exc(), end="")
             result = BeatResult("error", f"{type(e).__name__}: {e}")
             stop.set()
         finally:
-            captured = router.local.buffer.getvalue()
-            router.local.buffer = None
-        _report(real, lock, n, captured, result)
+            router.end()
+        _report(real, lock, n, result)
         return result
 
     sys.stdout = router
@@ -203,7 +248,7 @@ def _run_parallel(beats: list, work: Callable[[int], BeatResult], workers: int) 
 
 
 def _run_in_order(beats: list, work: Callable[[int], BeatResult], keep_going: bool) -> dict:
-    """Apply verdicts one beat at a time, in the given order (used ids depend on the order). An error stops the
+    """Apply verdicts one beat at a time, in beat order (used ids depend on the order). An error stops the
     rest unless keep_going; flagged beats (no acceptable, duplicate) never stop it."""
     results, stopped = {}, False
     lock = threading.Lock()
@@ -214,10 +259,12 @@ def _run_in_order(beats: list, work: Callable[[int], BeatResult], keep_going: bo
             try:
                 result = work(n)
             except Exception as e:  # noqa: BLE001
+                for line in traceback.format_exc().splitlines():
+                    print(f"[beat {n}] {line}")
                 result = BeatResult("error", f"{type(e).__name__}: {e}")
                 stopped = not keep_going
         results[n] = result
-        _report(sys.stdout, lock, n, "", result)
+        _report(sys.stdout, lock, n, result)
     return results
 
 
@@ -254,20 +301,13 @@ def _duplicate(pairs: list) -> list:
     return [p for p in pairs if list(p) in used]
 
 
-def _read_response(path: str) -> str:
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"no judge response saved at {path}")
-    with open(path) as f:
-        return f.read()
-
-
 def apply_modern(beats: Optional[list] = None, keep_going: bool = False, *, envato_profile_dir: str) -> dict:
     beats = _select(beats, _modern_beats(), "modern footage", _modern_prompt)
 
     def work(n: int) -> BeatResult:
         if os.path.exists(output_path(n)):
             return BeatResult("skipped", f"{output_path(n)} already exists")
-        raw = _read_response(_modern_response(n))
+        raw = _read_response("modern", n)
         candidates = load_stock_candidates(f"candidates_{n}.json")
         try:
             winner_index = parse_scoring_output(raw, num_candidates=len(candidates))
@@ -310,7 +350,7 @@ def apply_film(beats: Optional[list] = None, keep_going: bool = False) -> dict:
     def work(n: int) -> BeatResult:
         if os.path.exists(output_path(n)):
             return BeatResult("skipped", f"{output_path(n)} already exists")
-        raw = _read_response(_archival_response("film", n))
+        raw = _read_response("film", n)
         candidates = load_candidates(candidates_path("film", n))
         verdict = parse_archival_verdict(raw, len(candidates), "film")
         if verdict.picks:
@@ -363,7 +403,7 @@ def apply_photos(beats: Optional[list] = None, keep_going: bool = False) -> dict
     def work(n: int) -> BeatResult:
         if os.path.exists(output_path(n)):
             return BeatResult("skipped", f"{output_path(n)} already exists")
-        raw = _read_response(_archival_response("photo", n))
+        raw = _read_response("photo", n)
         reasoning = _empty_picks_reasoning(raw)
         if reasoning is not None:
             return BeatResult("no_acceptable", f"the judge picked no photo: {reasoning}")
@@ -406,7 +446,7 @@ def apply_mixed(beats: Optional[list] = None, keep_going: bool = False, *, envat
     def work(n: int) -> BeatResult:
         if os.path.exists(output_path(n)):
             return BeatResult("skipped", f"{output_path(n)} already exists")
-        raw = _read_response(_archival_response("mixed", n))
+        raw = _read_response("mixed", n)
         stills, still_types, stock = _load_state(n)
         verdict = parse_mixed_verdict(raw, still_types + ["stock"] * len(stock))
         if verdict.choice == "none":
@@ -480,6 +520,20 @@ def save_response(kind: str, n: int, text: str) -> str:
     path = response_of(n)
     _write_text_atomic(path, verdict)
     return path
+
+
+def extract_response(kind: str, n: int, output_path_: str) -> str:
+    """save_response from a judge subagent's output file, but only when that file is this beat's judge: it must
+    mention the beat's prompt file (the judge was told to Read it) and be newer than the prompt (a judge that
+    ran before the beat was prepared again answered other candidates)."""
+    prompt = os.path.abspath(JUDGES[kind][0](n))
+    with open(output_path_) as f:
+        text = f.read()
+    if prompt not in text:
+        raise ValueError(f"{output_path_} never mentions {prompt}: it is not beat {n}'s {kind} judge")
+    if os.path.exists(prompt) and os.path.getmtime(output_path_) < os.path.getmtime(prompt):
+        raise ValueError(f"{output_path_} is older than {prompt}: that judge answered an earlier prep of beat {n}")
+    return save_response(kind, n, text)
 
 
 # --- CLI -----------------------------------------------------------------------------------------
@@ -579,8 +633,7 @@ def main(argv: Optional[list] = None) -> int:
     for pair in args.pairs:
         beat, _, path = pair.partition("=")
         try:
-            with open(path) as f:
-                print(f"beat {beat}: saved", save_response(args.kind, int(beat), f.read()))
+            print(f"beat {beat}: saved", extract_response(args.kind, int(beat), path))
         except (OSError, ValueError) as e:
             print(f"beat {beat}: ERROR {e}")
             status = 1

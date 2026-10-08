@@ -141,7 +141,7 @@ def test_prep_rejects_a_beat_that_is_not_in_its_list(run):
         batch.prep_mixed([10], workers=1, pexels_api_key="pk", youtube_api_key="yk", envato_profile_dir="env")
 
 
-def test_each_beats_printed_lines_come_out_together_and_labelled(run, monkeypatch, capsys):
+def test_each_beats_printed_lines_are_labelled_with_the_beat(run, monkeypatch, capsys):
     def noisy(**kw):
         print(f"WARNING: Envato contributed 0 candidates for {kw['query']}")
         time.sleep(0.02)
@@ -155,8 +155,8 @@ def test_each_beats_printed_lines_come_out_together_and_labelled(run, monkeypatc
 
     lines = capsys.readouterr().out.splitlines()
     for n in (1, 2, 3):
-        i = lines.index(f"[beat {n}] WARNING: Envato contributed 0 candidates for q{n}")
-        assert lines[i + 1] == f"[beat {n}] second line for q{n}"
+        first = lines.index(f"[beat {n}] WARNING: Envato contributed 0 candidates for q{n}")
+        assert lines.index(f"[beat {n}] second line for q{n}") > first
 
 
 # --- apply-modern --------------------------------------------------------------------------------
@@ -314,6 +314,7 @@ def test_a_duplicate_check_only_counts_the_photos_that_will_be_shown(run, monkey
     beats[0]["end"] = 3.0
     json.dump(beats, open("archival_beats.json", "w"))
     save_candidates(candidates_path("photo", 10), [_still(1), _still(2)])
+    open("archival_work/photo_prompt_10.txt", "w").write("p")
     open("archival_work/photo_response_10.txt", "w").write('{"picks": [0, 1], "rejected": [], "reasoning": "r"}')
     json.dump([["archive", "loc:2"]], open("used_footage_ids.json", "w"))
 
@@ -376,8 +377,10 @@ def test_save_response_accepts_plain_text_and_writes_the_kinds_response_file(run
 
 
 def test_cli_extract_reads_subagent_output_files(run, tmp_path):
+    open("scoring_prompt_1.txt", "w").write("p")
     out = tmp_path / "agent.output"
-    out.write_text(json.dumps({"message": {"content": [{"type": "text", "text": '{"winner_index": 0, "reasoning": "r"}'}]}}))
+    out.write_text(json.dumps({"prompt": f"Read the file {os.path.abspath('scoring_prompt_1.txt')}"}) + "\n" +
+                   json.dumps({"message": {"content": [{"type": "text", "text": '{"winner_index": 0, "reasoning": "r"}'}]}}))
 
     assert batch.main(["extract", "modern", f"1={out}"]) == 0
     assert json.loads(open("scoring_response_1.txt").read())["winner_index"] == 0
@@ -415,3 +418,84 @@ def test_status_lists_what_is_left(run, capsys):
     out = capsys.readouterr().out
     assert "modern: 2 of 3 left: 2 3" in out and "archival photo: 3 of 3 left: 10 11 14" in out
     assert "mixed: 2 of 2 left: 12 13" in out
+
+
+# --- review fixes ---------------------------------------------------------------------------------
+
+def _age(path, seconds):
+    t = time.time() - seconds
+    os.utime(path, (t, t))
+
+
+def test_default_apply_ignores_files_left_from_an_earlier_video(run, monkeypatch):
+    # Step 1 writes footage_beats.json for the new video; prompts older than it belong to the last video.
+    downloads = []
+    monkeypatch.setattr(batch, "resolve_combined_winner", _fake_resolve(downloads))
+    _modern_ready(1, [_pexels(7)], '{"winner_index": 0, "reasoning": "old video"}')
+    for path in ("candidates_1.json", "scoring_prompt_1.txt", "scoring_response_1.txt"):
+        _age(path, 3600)
+
+    assert batch.apply_modern(envato_profile_dir="env") == {}
+    results = batch.apply_modern([1], envato_profile_dir="env")
+    assert results[1].status == "error" and "earlier video" in results[1].message and downloads == []
+
+
+def test_a_response_older_than_its_prompt_is_never_applied(run, monkeypatch):
+    downloads = []
+    monkeypatch.setattr(batch, "resolve_combined_winner", _fake_resolve(downloads))
+    _modern_ready(1, [_pexels(7)], '{"winner_index": 0, "reasoning": "r"}')
+    _age("scoring_response_1.txt", 60)
+
+    results = batch.apply_modern([1], envato_profile_dir="env")
+
+    assert results[1].status == "error" and "older than its prompt" in results[1].message and downloads == []
+
+
+def test_explicit_beat_lists_are_deduplicated_and_put_in_beat_order(run, monkeypatch):
+    downloads = []
+    monkeypatch.setattr(batch, "resolve_combined_winner", _fake_resolve(downloads))
+    _modern_ready(1, [_pexels(7)], '{"winner_index": 0, "reasoning": "r"}')
+    _modern_ready(3, [_pexels(9)], '{"winner_index": 0, "reasoning": "r"}')
+
+    results = batch.apply_modern([3, 1, 3], envato_profile_dir="env")
+
+    assert list(results) == [1, 3] and [d[0] for d in downloads] == ["7", "9"]
+
+
+def test_extract_refuses_an_output_file_for_another_beats_prompt_or_an_older_one(run, tmp_path):
+    open("scoring_prompt_1.txt", "w").write("p1")
+    open("scoring_prompt_2.txt", "w").write("p2")
+    answer = {"message": {"content": [{"type": "text", "text": '{"winner_index": 0, "reasoning": "r"}'}]}}
+    other = tmp_path / "other.output"
+    other.write_text(json.dumps({"prompt": f"Read {os.path.abspath('scoring_prompt_2.txt')}"}) + "\n" + json.dumps(answer))
+    old = tmp_path / "old.output"
+    old.write_text(json.dumps({"prompt": f"Read {os.path.abspath('scoring_prompt_1.txt')}"}) + "\n" + json.dumps(answer))
+    _age(str(old), 60)
+
+    assert batch.main(["extract", "modern", f"1={other}", f"1={old}"]) == 1
+    assert not os.path.exists("scoring_response_1.txt")
+
+
+def test_a_failing_beat_prints_its_traceback(run, monkeypatch, capsys):
+    monkeypatch.setattr(batch, "prepare_combined_scoring", _fake_prepare_combined([], fail_query="q1"))
+    monkeypatch.setattr(batch, "record_spend", lambda units, path: None)
+
+    batch.prep_modern([1], workers=1, pexels_api_key="pk", youtube_api_key="yk", envato_profile_dir="env")
+
+    assert "[beat 1] Traceback (most recent call last):" in capsys.readouterr().out
+
+
+def test_prep_lines_are_printed_while_the_beat_is_still_running(run, monkeypatch, capsys):
+    seen_early = []
+
+    def slow(**kw):
+        print(f"progress {kw['query']}")
+        seen_early.append("[beat 1] progress q1" in capsys.readouterr().out)
+        return [_pexels(1)], "p"
+
+    monkeypatch.setattr(batch, "prepare_combined_scoring", slow)
+    monkeypatch.setattr(batch, "record_spend", lambda units, path: None)
+
+    batch.prep_modern([1], workers=1, pexels_api_key="pk", youtube_api_key="yk", envato_profile_dir="env")
+
+    assert seen_early == [True]

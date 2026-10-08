@@ -124,6 +124,69 @@ def test_trim_envato_clip_raises_on_ffmpeg_failure(tmp_path):
         trim_envato_clip(str(tmp_path / "does-not-exist.mov"), str(tmp_path / "out.mov"), 3.0)
 
 
+def _make_video(path, size, seconds):
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"testsrc=s={size}:d={seconds}:r=25",
+         "-c:v", "prores_ks", "-pix_fmt", "yuv422p10le", str(path)],
+        check=True,
+    )
+
+
+def _probe_size_and_duration(path):
+    import json
+    info = json.loads(subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+         "stream=width,height:format=duration", "-of", "json", str(path)],
+        capture_output=True, text=True, check=True,
+    ).stdout)
+    s = info["streams"][0]
+    return (s["width"], s["height"]), float(info["format"]["duration"])
+
+
+def test_trim_envato_clip_extracts_the_largest_video_from_a_zip_download(tmp_path):
+    # Live finding 2026-10-07/08: some Envato winners download as a .zip and ffmpeg cannot read it.
+    if not _ffmpeg_available():
+        pytest.skip("ffmpeg/ffprobe not installed")
+    import zipfile
+
+    _make_video(tmp_path / "preview.mov", "160x90", 1)
+    _make_video(tmp_path / "master.mov", "320x180", 10)
+    archive = tmp_path / "Envato_item.zip"  # the suggested filename can be anything
+    with zipfile.ZipFile(archive, "w") as z:
+        z.writestr("license.txt", "licensed")
+        z.write(tmp_path / "preview.mov", "item/preview.mov")
+        z.write(tmp_path / "master.mov", "item/footage/MASTER.MOV")
+    dest = tmp_path / "beat_7.mp4"
+
+    assert trim_envato_clip(str(archive), str(dest), duration_seconds=3.0) == str(dest)
+
+    size, duration = _probe_size_and_duration(dest)
+    assert size == (320, 180) and abs(duration - 3.0) < 0.5
+
+
+def test_trim_envato_clip_raises_when_a_zip_holds_no_video(tmp_path):
+    import zipfile
+
+    archive = tmp_path / "item.zip"
+    with zipfile.ZipFile(archive, "w") as z:
+        z.writestr("license.txt", "licensed")
+        z.writestr("readme.pdf", "x")
+
+    with pytest.raises(EnvatoDownloadError, match="no video file.*license.txt"):
+        trim_envato_clip(str(archive), str(tmp_path / "out.mp4"), 3.0)
+
+
+def test_trim_envato_clip_creates_the_output_directory(tmp_path):
+    # Stage 2 Step 1 deletes footage_output/; the trim must recreate it.
+    if not _ffmpeg_available():
+        pytest.skip("ffmpeg/ffprobe not installed")
+    _make_video(tmp_path / "source.mov", "320x180", 4)
+    dest = tmp_path / "footage_output" / "beat_3.mp4"
+
+    assert trim_envato_clip(str(tmp_path / "source.mov"), str(dest), 2.0) == str(dest)
+    assert dest.exists()
+
+
 def _ffmpeg_available() -> bool:
     import shutil
     return bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
